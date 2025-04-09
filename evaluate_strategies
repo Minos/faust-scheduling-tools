@@ -1,0 +1,360 @@
+#!/usr/bin/env python
+
+from dataclasses import dataclass
+
+import argparse
+import csv
+import os
+import random
+from glob import glob
+from prettytable import PrettyTable
+
+import numpy as np
+import scipy as sp
+import sklearn
+
+
+deep_first = "0"
+breadth_first = "1"
+interleaved = "2"
+reverse_breadth_first = "3"
+
+clang = "clang++"
+gcc = "g++"
+native = "native"
+generic = "generic"
+
+context_switches = "context-switches:u"
+cpu_migrations = "cpu-migrations:u"
+page_faults = "page-faults:u"
+instructions = "instructions:u"
+cycles = "cycles:u"
+branches = "branches:u"
+branch_misses = "branch-misses:u"
+l1_dcache_loads = "L1-dcache-loads:u"
+l1_dcache_load_misses = "L1-dcache-load-misses:u"
+llc_loads = "LLC-loads:u"
+llc_load_misses = "LLC-load-misses:u"
+l1_icache_load_misses = "L1-icache-load-misses:u"
+dtlb_loads = "dTLB-loads:u"
+dtlb_load_misses = "dTLB-load-misses:u"
+itlb_loads = "iTLB-loads:u"
+itlb_load_misses = "iTLB-load-misses:u"
+cycle_activity_stalls_total = "cycle_activity.stalls_total:u"
+cycle_activity_cycles_l3_miss = "cycle_activity.cycles_l3_miss:u"
+cycle_activity_stalls_l3_miss = "cycle_activity.stalls_l3_miss:u"
+cycle_activity_cycles_l1d_miss = "cycle_activity.cycles_l1d_miss:u"
+cycle_activity_cycles_l2_miss = "cycle_activity.cycles_l2_miss:u"
+cycle_activity_cycles_mem_any = "cycle_activity.cycles_mem_any:u"
+cycle_activity_stalls_l1d_miss = "cycle_activity.stalls_l1d_miss:u"
+cycle_activity_stalls_l2_miss = "cycle_activity.stalls_l2_miss:u"
+cycle_activity_stalls_mem_any = "cycle_activity.stalls_mem_any:u"
+
+l1_dcache_load_miss_rate = "L1-dcache-load-miss-rate"
+llc_load_miss_rate = "LLC-load-miss-rate"
+dtlb_load_miss_rate = "dTLB-load-miss-rate"
+itlb_load_miss_rate = "iTLB-load-miss-rate"
+branch_miss_rate = "branch-miss-rate"
+instructions_per_cycle = "instructions-per-cycle"
+instructions_and_stalls = "instructions-and-stalls"
+
+STRATEGIES = [deep_first, breadth_first, interleaved, reverse_breadth_first]
+COMPILERS = [clang, gcc]
+FLAVORS = [native, generic]
+EVENTS = [
+    # context_switches,
+    # cpu_migrations,
+    # page_faults,
+    instructions,
+    cycles,
+    # branches,
+    # branch_misses,
+    # l1_dcache_loads,
+    # l1_dcache_load_misses,
+    # llc_loads,
+    # llc_load_misses,
+    # l1_icache_load_misses,
+    # dtlb_loads,
+    # dtlb_load_misses,
+    # itlb_loads,
+    # itlb_load_misses,
+    cycle_activity_stalls_total,
+    # cycle_activity_cycles_l3_miss,
+    # cycle_activity_stalls_l3_miss,
+    # cycle_activity_cycles_l1d_miss,
+    # cycle_activity_cycles_l2_miss,
+    # cycle_activity_cycles_mem_any,
+    # cycle_activity_stalls_l1d_miss,
+    # cycle_activity_stalls_l2_miss,
+    # cycle_activity_stalls_mem_any,
+]
+MEASURES = [
+    # l1_dcache_load_miss_rate,
+    # llc_load_miss_rate,
+    # dtlb_load_miss_rate,
+    # itlb_load_miss_rate,
+    # branch_miss_rate,
+    # instructions_per_cycle,
+    instructions_and_stalls
+]
+KEYS = EVENTS + MEASURES
+
+
+@dataclass
+class Run:
+    strategy: str
+    compiler: str
+    flavor: str
+
+    min_time: float = 0
+    avg_time: float = 0
+
+    task_clock_ms: float = 0.0
+    measures = {}
+
+    def characteristics(self) -> str:
+        return f"ss{self.strategy}_{self.compiler}_{self.flavor}"
+
+
+@dataclass
+class Program:
+    name: str
+    runs: [Run]
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        prog="Evaluate Strategies",
+        description="Evaluate scheduling strategies run by run_strategies",
+    )
+
+    parser.add_argument("path", help="DSP program or directory")
+    parser.add_argument("-r", "--run", help="Run number", default=2)
+
+    args = parser.parse_args()
+    path, ext = os.path.splitext(args.path)
+    run = args.run
+
+    if ext == ".dsp" or ext == ".bench":
+        directory, program_name = os.path.split(path)
+        program = parse_program(directory, program_name, run)
+        print_details(program)
+    else:
+        files = glob("*.dsp", root_dir=path)
+        program_names = [os.path.splitext(f)[0] for f in files]
+        programs = [parse_program(path, name, run) for name in program_names]
+        print_linear_regression(programs)
+
+
+def plot_linear_regression(reg, program):
+    ...
+
+
+def print_linear_regression(programs: [Program]):
+    rate = 1
+    training_size = int(len(programs) * rate)
+    random.shuffle(programs)
+    training = programs[:training_size]
+
+    if training_size < len(programs):
+        testing = programs[training_size:]
+    else:
+        testing = training
+
+    reg = linear_regression(training)
+    weights = reg.coef_
+    bias = reg.intercept_
+
+    for program in testing:
+        print(f'\033[1m{program.name}\033[0m')
+        print_cycles(program.runs, color=92)
+        print_cycles_predictions(program, weights, bias, color=96)
+        print()
+
+    testing_cycles = np.concat([collect_measures(p, cycles) for p in testing])
+    testing_data = np.concat([collect_data(p).T for p in testing])
+    print(f'Regression score: {reg.score(testing_data, testing_cycles)}')
+
+    print(f'cycles = {int(bias*1e-6)} M')
+    for w, k in zip(weights, KEYS):
+        if w < 0:
+            print(f'       - {-w:.2f} * {k}')
+        else:
+            print(f'       + {w:.2f} * {k}')
+
+
+def linear_regression(programs: [Program]):
+    training_cycles = np.concat([collect_measures(p, cycles) for p in programs])
+    training_data = np.concat([collect_data(p).T for p in programs])
+
+    reg = sklearn.linear_model.LinearRegression(fit_intercept=False)
+    reg.fit(training_data, training_cycles)
+
+    return reg
+
+
+def print_time_predictions(program: Program, weights, bias, *, color=39):
+    print_values(program.runs,
+                 lambda r: linear_prediction(r, weights, bias),
+                 lambda v: f'{v:.04f}ms',
+                 "predicted time",
+                 color=color)
+
+
+def print_cycles_predictions(program: Program, weights, bias, *, color=39):
+    print_values(program.runs,
+                 lambda r: linear_prediction(r, weights, bias),
+                 lambda v: f'{int(v*1e-6)} M',
+                 "predicted cycles",
+                 color=color)
+
+
+def linear_prediction(run: Run, weights, bias):
+    return sum([run.measures[k] * weights[i] for i, k in enumerate(KEYS)]) + bias
+
+
+def print_details(program: Program):
+    times = collect_times(program)
+    data = collect_data(program)
+
+    correlations = [(float(sp.stats.pearsonr(data[i], times).statistic), k)
+                    for i, k in enumerate(KEYS)]
+    correlations = list(reversed(sorted(correlations, key=lambda c: abs(c[0]))))
+
+    for c in correlations:
+        print(f'\033[1m{c[1]}: {c[0]}\033[0m')
+        print_times(program.runs, color=92)
+        print_measures(program.runs, c[1], color=96)
+        print()
+
+
+def print_times(runs: [Run], *, color=39):
+    print_values(runs,
+                 lambda r: r.avg_time,
+                 lambda v: f"{v:.04f}ms",
+                 "avg time",
+                 color=color)
+
+
+def print_cycles(runs: [Run], *, color=39):
+    print_values(runs,
+                 lambda r: r.measures[cycles],
+                 lambda v: f"{int(v*1e-6)} M",
+                 "cycles",
+                 color=color)
+
+
+def print_measures(runs: [Run], m: str, *, color=39):
+    def printer(v):
+        if m.endswith("-rate"):
+            return f'{v*100:.04f}%' if abs(v) > 1e-3 else f'{v:.2e}'
+        elif m.endswith("-per-cycle"):
+            return f'{v:.02f}'
+        elif v > 1e6:
+            return f'{int(v/1000000)} M'
+        else:
+            return f'{round(v)}'
+    print_values(runs, lambda r: r.measures[m], printer, m, color=color)
+
+
+def print_values(runs: [Run], key, formatter, title, *, color=39):
+    table = PrettyTable()
+    table.field_names = [title] + STRATEGIES
+    table.align = 'r'
+    table.align[title] = 'l'
+    for compiler in COMPILERS:
+        for flavor in FLAVORS:
+            table.add_row(
+                [f"{compiler} {flavor}"]
+                + [formatter(key(r)) for r in runs
+                   if r.compiler == compiler and r.flavor == flavor]
+            )
+    table.add_row(["average"] + [
+        formatter(sum([key(r) for r in runs
+                       if r.strategy == s]) / len(STRATEGIES))
+        for s in STRATEGIES])
+    print(f'\033[{color}m{table}\033[0m')
+
+
+def collect_times(program: Program) -> np.array:
+    return np.asarray([run.avg_time for run in program.runs])
+
+
+def collect_data(program: Program) -> np.array:
+    return np.asarray([collect_measures(program, k) for k in KEYS])
+
+
+def collect_measures(program: Program, m: str) -> np.array:
+    return np.asarray([run.measures[m] for run in program.runs])
+
+
+def parse_run(directory, program_name, strategy, compiler, flavor, run_number) -> Run:
+    csv_path = (
+        f"{directory}/{program_name}.bench/"
+        f"{program_name}_ss{strategy}_{compiler}_{flavor}.r{run_number}.csv"
+    )
+    run = Run(strategy, compiler, flavor)
+    run.measures = {}
+    min_times = []
+    avg_times = []
+    with open(csv_path, "r") as file:
+        reader = csv.reader(file, delimiter=";")
+        for row in reader:
+            name = row[2]
+            measure = row[0]
+            match name:
+                case "minimum":
+                    min_times.append(float(measure))
+                    avg_times.append(float(row[3]))
+                case "task-clock:u":
+                    run.task_clock_ms = float(measure.replace(",", "."))
+                case _:
+                    run.measures[name] = int(measure)
+
+    run.min_time = min(min_times)
+    run.avg_time = sum(avg_times) / len(avg_times)
+
+    run.measures[l1_dcache_load_miss_rate] = (
+        run.measures[l1_dcache_load_misses] / run.measures[l1_dcache_loads]
+    )
+    run.measures[llc_load_miss_rate] = (
+        run.measures[llc_load_misses] / run.measures[llc_loads]
+    )
+    run.measures[dtlb_load_miss_rate] = (
+        run.measures[dtlb_load_misses] / run.measures[dtlb_loads]
+    )
+    run.measures[itlb_load_miss_rate] = (
+        run.measures[itlb_load_misses] / run.measures[itlb_loads]
+    )
+    run.measures[instructions_per_cycle] = (
+        run.measures[instructions] / run.measures[cycles]
+    )
+    try:
+        run.measures[branch_miss_rate] = (
+            run.measures[branch_misses] / run.measures[branches]
+        )
+    except KeyError:
+        pass
+    try:
+        run.measures[instructions_and_stalls] = (
+                (run.measures[instructions] + run.measures[cycle_activity_stalls_total])
+        )
+    except KeyError:
+        pass
+
+    return run
+
+
+def parse_program(directory, program_name, run_number) -> Program:
+    runs = []
+    for strategy in STRATEGIES:
+        for compiler in COMPILERS:
+            for flavor in FLAVORS:
+                r = parse_run(directory, program_name, strategy, compiler,
+                              flavor, run_number)
+                runs += [r]
+    return Program(program_name, runs)
+
+
+if __name__ == "__main__":
+    main()
