@@ -2,7 +2,9 @@
 
 set -e
 
-strategies=(0 1 2 3)
+run=4
+
+strategies=(0 1 2 3 4)
 compilers=('clang++' 'g++')
 
 
@@ -16,16 +18,11 @@ run_variant() {
     local compiler=$1
     local cpp=$2
     local binary=$3
-    local output="${binary}.r2.csv"
+    local output="${binary}.r${run}.csv"
 
     if [ ! -e "$output" ] || [ "$output" -ot "$binary" ] || [ "$force_run" = true ]; then
         echo "Running $binary"
-        perf stat -x\; -r4 \
-            -e instructions \
-            -e cycles \
-            -e cycle_activity.stalls_total \
-            -e cycle_activity.stalls_mem_any \
-            "$binary" >"$output" 2>&1
+            "$binary" -r >"$output"
     fi
 }
 
@@ -94,6 +91,7 @@ while [ "$1" ]; do
             l=${p:0:1}
             case "$l" in
                 "f") force_run=true ;;
+                "s") strategies=("${p:1}")
             esac
         done
     else

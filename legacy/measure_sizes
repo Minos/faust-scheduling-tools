@@ -1,0 +1,11 @@
+#!/bin/bash
+
+file=$1
+
+dsp=$(basename $file .dsp)
+strategies=(0 1 2 3)
+
+for strategy in ${strategies[@]}; do
+    size=$(~/dev/faustschedulerbenchtool/fcsizetool $file $strategy)
+    echo "$dsp;$strategy;$size"
+done

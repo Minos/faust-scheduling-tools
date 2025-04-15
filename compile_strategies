@@ -30,7 +30,7 @@ compile_variant() {
 
     if [ ! -e "$output" ] || [ "$output" -ot "$cpp" ] || [ "$force_cpp" = true ]; then
         echo "Compiling $output"
-        $compiler $flags "$cpp" -o "$output" &
+        $compiler -lpfm --std=c++20 $flags "$cpp" -o "$output" &
     fi
 }
 
@@ -64,7 +64,9 @@ compile_faust() {
     for strategy in "${strategies[@]}"; do
         local cpp=${dir}/${dsp}_ss${strategy}.cpp
 
-        if [ ! -e "$cpp" ] || [ "$src" -nt "$cpp" ] || [ "$force_faust" = true ]; then
+        if [ ! -e "$cpp" ] || [ "$src" -nt "$cpp" ] || [ "$BENCHARCH" -nt "$cpp" ] \
+            || [ "$force_faust" = true ]; \
+        then
             echo "Generating $cpp"
             ${FAUST} -a "${BENCHARCH}" \
                 -lang "${FAUSTLANG}" \

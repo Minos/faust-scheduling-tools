@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
 from dataclasses import dataclass
+import itertools
 
 import argparse
 import csv
@@ -9,15 +10,20 @@ import random
 from glob import glob
 from prettytable import PrettyTable
 
+import matplotlib.pyplot as plt
 import numpy as np
 import scipy as sp
 import sklearn
 
 
+# Superscalar vector size
+scaling_factor = 4
+
 deep_first = "0"
 breadth_first = "1"
 interleaved = "2"
 reverse_breadth_first = "3"
+custom = "4"
 
 clang = "clang++"
 gcc = "g++"
@@ -57,6 +63,33 @@ itlb_load_miss_rate = "iTLB-load-miss-rate"
 branch_miss_rate = "branch-miss-rate"
 instructions_per_cycle = "instructions-per-cycle"
 instructions_and_stalls = "instructions-and-stalls"
+cycle_activity_stalls_other = "stalls_other"
+
+STRATEGY_LABELS = {
+    deep_first: 'deep-first',
+    breadth_first: 'breadth-first',
+    interleaved: 'interleaved',
+    reverse_breadth_first: 'reverse_breadth_first',
+    custom: 'custom',
+}
+
+STRATEGY_LABELS_SHORT = {
+    deep_first: 'DF',
+    breadth_first: 'BF',
+    interleaved: 'I',
+    reverse_breadth_first: 'RBF',
+    custom: 'CUS',
+}
+
+COMPILER_LABELS = {
+    clang: 'clang',
+    gcc: 'gcc',
+}
+
+FLAVOR_LABELS = {
+    native: 'native',
+    generic: 'generic',
+}
 
 STRATEGIES = [deep_first, breadth_first, interleaved, reverse_breadth_first]
 COMPILERS = [clang, gcc]
@@ -66,7 +99,7 @@ EVENTS = [
     # cpu_migrations,
     # page_faults,
     instructions,
-    cycles,
+    # cycles,
     # branches,
     # branch_misses,
     # l1_dcache_loads,
@@ -78,7 +111,7 @@ EVENTS = [
     # dtlb_load_misses,
     # itlb_loads,
     # itlb_load_misses,
-    cycle_activity_stalls_total,
+    # cycle_activity_stalls_total,
     # cycle_activity_cycles_l3_miss,
     # cycle_activity_stalls_l3_miss,
     # cycle_activity_cycles_l1d_miss,
@@ -86,7 +119,7 @@ EVENTS = [
     # cycle_activity_cycles_mem_any,
     # cycle_activity_stalls_l1d_miss,
     # cycle_activity_stalls_l2_miss,
-    # cycle_activity_stalls_mem_any,
+    cycle_activity_stalls_mem_any,
 ]
 MEASURES = [
     # l1_dcache_load_miss_rate,
@@ -95,7 +128,8 @@ MEASURES = [
     # itlb_load_miss_rate,
     # branch_miss_rate,
     # instructions_per_cycle,
-    instructions_and_stalls
+    # instructions_and_stalls,
+    cycle_activity_stalls_other,
 ]
 KEYS = EVENTS + MEASURES
 
@@ -130,15 +164,25 @@ def main():
 
     parser.add_argument("path", help="DSP program or directory")
     parser.add_argument("-r", "--run", help="Run number", default=2)
+    parser.add_argument("-p", "--plot", help="Plot measures", action='store_true')
+    parser.add_argument("-o", "--output", help="Output plot to file", default=None)
 
     args = parser.parse_args()
     path, ext = os.path.splitext(args.path)
     run = args.run
 
+    plt.style.use('./report.mplstyle')
+    # When outputing to png format, we need a higher DPI.
+    if args.output:
+        plt.rcParams['figure.dpi'] = 512
+
     if ext == ".dsp" or ext == ".bench":
         directory, program_name = os.path.split(path)
         program = parse_program(directory, program_name, run)
-        print_details(program)
+        if args.plot:
+            plot_stalls(program, args.output)
+        else:
+            print_details(program)
     else:
         files = glob("*.dsp", root_dir=path)
         program_names = [os.path.splitext(f)[0] for f in files]
@@ -221,11 +265,69 @@ def print_details(program: Program):
                     for i, k in enumerate(KEYS)]
     correlations = list(reversed(sorted(correlations, key=lambda c: abs(c[0]))))
 
+    print_times(program.runs, color=92)
+    print_measures(program.runs, cycles, color=93)
     for c in correlations:
-        print(f'\033[1m{c[1]}: {c[0]}\033[0m')
-        print_times(program.runs, color=92)
+        print(f'\n\033[1m{c[1]}: {c[0]}\033[0m')
         print_measures(program.runs, c[1], color=96)
-        print()
+
+
+def plot_stalls(program: Program, output_file=None):
+    fig, ax = plt.subplots(figsize=(6, 4))
+
+    nticks = len(COMPILERS) * len(FLAVORS)
+    y = np.arange(nticks)
+
+    height = 1 / (len(STRATEGIES) + 1)
+    thickness = 0.8
+    thickness_inside = thickness * 1
+
+    variants = sorted(itertools.product(COMPILERS, FLAVORS))
+
+    for i, strategy in enumerate(STRATEGIES):
+        offset = height * i
+        runs = [run for run in program.runs if run.strategy == strategy]
+        runs = sorted(runs, key=lambda r: (r.compiler, r.flavor))
+
+        left = np.zeros(4)
+
+        instr = [r.measures[instructions] / scaling_factor for r in runs]
+        ax.barh(y + offset, instr, height * thickness_inside,
+                color='xkcd:burnt orange',
+                label='instr/4' if i == 1 else None)
+        left += instr
+
+        st_m = [r.measures[cycle_activity_stalls_mem_any] for r in runs]
+        ax.barh(y + offset, st_m, height * thickness_inside,
+                left=left, color='xkcd:purple',
+                label='stall (mem)' if i == 1 else None)
+        left += st_m
+
+        st_o = [r.measures[cycle_activity_stalls_other] for r in runs]
+        ax.barh(y + offset, st_o, height * thickness_inside,
+                left=left, color='xkcd:light purple',
+                label='stall (other)' if i == 1 else None)
+
+        ax.barh(y + offset, [r.measures[cycles] for r in runs],
+                height * thickness,
+                fill=False, linewidth=1,
+                label='cycles' if i == 0 else None, edgecolor='black')
+
+        rects = ax.barh(y + offset + 0.05 * height, [0] * len(runs))
+        labels = [STRATEGY_LABELS_SHORT[strategy]] * len(runs)
+        ax.bar_label(rects, labels=labels, padding=2, fontsize=6, color='white')
+
+    ax.set_title(f'Instructions et cycles d’attente : {program.name}')
+    ax.set_ylabel('Variante')
+    yticks = [f'{COMPILER_LABELS[c]} ({FLAVOR_LABELS[f]})' for c, f in variants]
+    ax.set_yticks(y + height * (len(STRATEGIES) / 2 - 0.5), yticks)
+    ax.invert_yaxis()
+    ax.legend(loc='upper left', ncols=4)
+
+    if output_file:
+        plt.savefig(output_file, bbox_inches='tight')
+    else:
+        plt.show()
 
 
 def print_times(runs: [Run], *, color=39):
@@ -314,33 +416,13 @@ def parse_run(directory, program_name, strategy, compiler, flavor, run_number) -
     run.min_time = min(min_times)
     run.avg_time = sum(avg_times) / len(avg_times)
 
-    run.measures[l1_dcache_load_miss_rate] = (
-        run.measures[l1_dcache_load_misses] / run.measures[l1_dcache_loads]
-    )
-    run.measures[llc_load_miss_rate] = (
-        run.measures[llc_load_misses] / run.measures[llc_loads]
-    )
-    run.measures[dtlb_load_miss_rate] = (
-        run.measures[dtlb_load_misses] / run.measures[dtlb_loads]
-    )
-    run.measures[itlb_load_miss_rate] = (
-        run.measures[itlb_load_misses] / run.measures[itlb_loads]
-    )
     run.measures[instructions_per_cycle] = (
         run.measures[instructions] / run.measures[cycles]
     )
-    try:
-        run.measures[branch_miss_rate] = (
-            run.measures[branch_misses] / run.measures[branches]
-        )
-    except KeyError:
-        pass
-    try:
-        run.measures[instructions_and_stalls] = (
-                (run.measures[instructions] + run.measures[cycle_activity_stalls_total])
-        )
-    except KeyError:
-        pass
+    run.measures[cycle_activity_stalls_other] = (
+        run.measures[cycle_activity_stalls_total]
+        - run.measures[cycle_activity_stalls_mem_any]
+    )
 
     return run
 
