@@ -4,7 +4,7 @@ set -e
 
 run=4
 
-strategies=(0 1 2 3 4)
+strategies=(0 1 2 3)
 compilers=('clang++' 'g++')
 
 
@@ -91,7 +91,6 @@ while [ "$1" ]; do
             l=${p:0:1}
             case "$l" in
                 "f") force_run=true ;;
-                "s") strategies=("${p:1}")
             esac
         done
     else

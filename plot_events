@@ -1,0 +1,252 @@
+#!/usr/bin/env python
+
+import argparse
+import csv
+import os
+import re
+
+import matplotlib.pyplot as plt
+import numpy as np
+
+
+# Superscalar vector size
+scaling_factor = 4
+
+deep_first = "0"
+breadth_first = "1"
+interleaved = "2"
+reverse_breadth_first = "3"
+custom = "4"
+
+clang = "clang++"
+gcc = "g++"
+native = "native"
+generic = "generic"
+
+time = "time(ns)"
+cycles = "cycles"
+instructions = "instructions"
+stalls_total = "stalls_total"
+stalls_mem = "stalls_mem_any"
+
+
+STRATEGY_LABELS = {
+    deep_first: "deep-first",
+    breadth_first: "breadth-first",
+    interleaved: "interleaved",
+    reverse_breadth_first: "reverse_breadth_first",
+    custom: "custom",
+}
+
+STRATEGY_LABELS_SHORT = {
+    deep_first: "DF",
+    breadth_first: "BF",
+    interleaved: "I",
+    reverse_breadth_first: "RBF",
+    custom: "CUS",
+}
+
+COMPILER_LABELS = {
+    clang: "clang",
+    gcc: "gcc",
+}
+
+FLAVOR_LABELS = {
+    native: "native",
+    generic: "generic",
+}
+
+STRATEGIES = [deep_first, breadth_first, interleaved, reverse_breadth_first]
+COMPILERS = [clang, gcc]
+FLAVORS = [native, generic]
+
+
+class Run:
+    def __init__(self, strategy: str, compiler: str, flavor: str):
+        self.strategy = strategy
+        self.compiler = compiler
+        self.flavor = flavor
+        self.loops = 0
+        self.events = {}
+
+    def characteristics(self) -> str:
+        return f"ss{self.strategy}_{self.compiler}_{self.flavor}"
+
+
+class Program:
+    name: str
+    runs: [Run]
+
+    def __init__(self, name):
+        self.name = name
+        self.runs = []
+
+
+def parse_run_by_path(csv_path, program_name, strategy, compiler, flavor) -> Run:
+    run = Run(strategy, compiler, flavor)
+    with open(csv_path, "r") as file:
+        reader = csv.reader(file, delimiter=";")
+        header = [col for col in next(reader) if len(col) > 0]
+        events = [[] for h in header if len(h) > 0]
+        loops = 0
+        for row in reader:
+            for i, col in enumerate(row):
+                if len(col) > 0:
+                    events[i].append(int(col))
+            loops += 1
+        run.events = {k: np.array(events[i]) for i, k in enumerate(header)}
+        run.loops = loops
+    return run
+
+
+def parse_run(directory, program_name, strategy, compiler, flavor, run_number) -> Run:
+    csv_path = (
+        f"{directory}/{program_name}.bench/"
+        f"{program_name}_ss{strategy}_{compiler}_{flavor}.r{run_number}.csv"
+    )
+    return parse_run_by_path(csv_path, program_name, strategy, compiler, flavor)
+
+
+def plot_run(run, ax):
+    x = np.arange(0, run.loops)
+    lw = 0.5
+
+    instr = run.events[instructions] / scaling_factor
+    st_m = run.events[stalls_mem]
+    st_t = run.events[stalls_total]
+
+    ax.fill_between(
+        x,
+        instr + st_m,
+        instr + st_t,
+        lw=lw,
+        color="xkcd:light purple",
+        label="stalls(other)",
+    )
+    ax.fill_between(
+        x, instr, instr + st_m, lw=lw, color="xkcd:purple", label="stalls(mem)"
+    )
+    ax.fill_between(x, 0, instr, lw=lw, color="xkcd:burnt orange", label="instr/4")
+
+    ax.plot(x, run.events[cycles], lw=lw, label="cycles", color="black")
+
+    ax.set_ylim(ymin=0)
+    ax.set_xlim(xmin=0, xmax=len(x))
+
+
+def plot_single_run(path, output_file):
+    directory, filename = os.path.split(path)
+    pattern = r"(.*)_ss(.)_(.*)_(.*).r([0-9]+).csv"
+    match = re.fullmatch(pattern, filename)
+    if not match:
+        print(f"File name {filename} does not match {pattern}.")
+        exit(1)
+
+    program_name = match.group(1)
+    strategy = match.group(2)
+    compiler = match.group(3)
+    flavor = match.group(4)
+
+    run = parse_run_by_path(path, program_name, strategy, compiler, flavor)
+
+    fig, ax = plt.subplots(1)
+    plot_run(run, ax)
+    ax.legend()
+    ax.set_title(
+        f"{program_name} ({COMPILER_LABELS[compiler]} "
+        f"{FLAVOR_LABELS[flavor]}) : {STRATEGY_LABELS[strategy]}"
+    )
+
+    if output_file:
+        plt.savefig(output_file, bbox_inches="tight")
+    else:
+        plt.show()
+
+
+def plot_multiple_runs(path, compilers, flavors, run_number, output_file):
+    directory, filename = os.path.split(path)
+    program_name, _ = os.path.splitext(filename)
+
+    runs = [
+        parse_run(directory, program_name, s, c, f, run_number)
+        for c in compilers
+        for f in flavors
+        for s in STRATEGIES
+    ]
+
+    ymax = max([np.max(run.events[cycles]) for run in runs]) * 1.1
+
+    ncols = len(compilers) * len(flavors)
+    if ncols == 1:
+        figsize = (6, 6)
+    elif ncols == 2:
+        figsize = (8, 6)
+    else:
+        figsize = (12, 6)
+
+    fig, axes = plt.subplots(
+        len(STRATEGIES), ncols, figsize=figsize, sharey=True, sharex=True, squeeze=False
+    )
+
+    for run, ax in zip(runs, (axes if len(runs) == 16 else axes.T).flatten()):
+        plot_run(run, ax)
+        ax.set_title(f"{STRATEGY_LABELS[run.strategy]}")
+        ax.set_title(
+            f"{COMPILER_LABELS[run.compiler]} {FLAVOR_LABELS[run.flavor]}, "
+            f"{STRATEGY_LABELS_SHORT[run.strategy]}"
+        )
+        ax.set_ylim(ymax=ymax)
+
+    handles, labels = axes[0, 0].get_legend_handles_labels()
+    fig.legend(handles, labels, ncols=4, loc="lower center")
+    fig.suptitle(program_name)
+
+    plt.subplots_adjust(hspace=0.5)
+
+    if output_file:
+        plt.savefig(output_file, bbox_inches="tight")
+    else:
+        plt.show()
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        prog="Plot detailed events",
+        description="Plot raw perf events generated by run_strategies",
+    )
+
+    parser.add_argument("path", help="DSP program or directory")
+    parser.add_argument("-r", "--run", help="Run number", default=3)
+    parser.add_argument(
+        "-c",
+        "--compiler",
+        help="Restrict to given compiler (clang or gcc)",
+        default=None,
+    )
+    parser.add_argument(
+        "-f",
+        "--flavor",
+        help="Restrict to given flavor (generic or native)",
+        default=None,
+    )
+    parser.add_argument("-o", "--output", help="Output plot to file", default=None)
+
+    args = parser.parse_args()
+    path, ext = os.path.splitext(args.path)
+
+    compilers = [args.compiler] if args.compiler is not None else COMPILERS
+    flavors = [args.flavor] if args.flavor is not None else FLAVORS
+
+    plt.style.use("./report.mplstyle")
+    # When outputing to png format, we need a higher DPI.
+    if args.output:
+        plt.rcParams["figure.dpi"] = 512
+
+    if ext == ".csv":
+        plot_single_run(args.path, args.output)
+    elif ext == ".dsp" or ext == ".bench":
+        plot_multiple_runs(args.path, compilers, flavors, args.run, args.output)
+
+
+if __name__ == "__main__":
+    main()

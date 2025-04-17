@@ -1,5 +1,4 @@
-#include <perfmon/perf_event.h>
-#include <perfmon/pfmlib.h>
+#include <perfmon/pfmlib_perf_event.h>
 #include <sys/ioctl.h>
 #include <sys/syscall.h>
 #include <sys/types.h>
@@ -126,16 +125,6 @@ class dsp {
 
 << includeclass >>
 
-typedef struct {
-    struct perf_event_attr* attr;
-    char**                  fstr;
-    size_t                  size;
-    int                     idx;
-    int                     cpu;
-    int                     flags;
-    int                     pad0;
-} pfm_perf_encode_arg_t;
-
 static void check_pfm_return_code(int code)
 {
     if (code != PFM_SUCCESS) {
@@ -242,7 +231,7 @@ static std::string hr_nanoseconds(int n)
 static std::string hr(int n)
 {
     if (n / 1000 == 0) {
-        return std::format("{}", n);
+        return std::format("{:8d}", n);
     } else if (n / 1e6 < 1) {
         return std::format("{:7.02f}K", n / 1e3);
     } else if (n / 1e9 < 1) {
