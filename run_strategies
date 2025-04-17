@@ -2,7 +2,7 @@
 
 set -e
 
-run=4
+run=5
 
 strategies=(0 1 2 3)
 compilers=('clang++' 'g++')
@@ -38,7 +38,7 @@ run_cpp() {
     for compiler in "${compilers[@]}"; do
         binary=${dir}/${base}_${compiler}
 
-        run_variant "$compiler" "$cpp" "${binary}_generic"
+        run_variant "$compiler" "$cpp" "${binary}_x86-64"
         run_variant "$compiler" "$cpp" "${binary}_native"
     done
 }
