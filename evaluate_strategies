@@ -28,7 +28,7 @@ custom = "4"
 clang = "clang++"
 gcc = "g++"
 native = "native"
-generic = "generic"
+generic = "x86-64"
 
 context_switches = "context-switches:u"
 cpu_migrations = "cpu-migrations:u"

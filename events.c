@@ -54,7 +54,7 @@ int main(int argc, char** argv)
     check_pfm_result(ret, "pfm_initialize");
 
     if (argc == 1) {
-        list_pmu_events(PFM_PMU_ARM_CORTEX_A72);
+        list_pmu_events(PFM_PMU_INTEL_SKL);
     } else {
         for (int i = 1; i < argc; i++) {
             print_pmu_event(argv[i]);

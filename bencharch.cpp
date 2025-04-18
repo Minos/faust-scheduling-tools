@@ -13,6 +13,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <format>
+#include <fstream>
 #include <functional>
 #include <iostream>
 
@@ -275,16 +276,16 @@ static void print_raw(std::ostream& output, long long* durations, long long* cou
 
 int main(int argc, char* argv[])
 {
-    bool raw = false;
-    int  opt;
+    int                    opt;
+    std::unique_ptr<char> output;
 
-    while ((opt = getopt(argc, argv, "r")) != -1) {
+    while ((opt = getopt(argc, argv, "o:")) != -1) {
         switch (opt) {
-            case 'r':
-                raw = true;
+            case 'o':
+                output.reset(strdup(optarg));
                 break;
             default:
-                std::cerr << "Usage: " << argv[0] << " [-d]" << std::endl;
+                std::cerr << "Usage: " << argv[0] << " [-o output]" << std::endl;
         }
     }
 
@@ -372,8 +373,9 @@ int main(int argc, char* argv[])
 
     delete d;
 
-    if (raw) {
-        print_raw(std::cout, durations, counts, names);
+    if (output) {
+        std::ofstream out(output.get());
+        print_raw(out, durations, counts, names);
     } else {
         std::cout << "\033[1;4m" << argv[0] << "\033[0m\n";
         print_statistics(std::cout, durations, NBITERATIONS, "time(ns)", hr_nanoseconds);
