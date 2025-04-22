@@ -192,6 +192,9 @@ def main():
         default=None,
     )
     parser.add_argument(
+        "--clang-native", help="Restrict to clang-native", action="store_true"
+    )
+    parser.add_argument(
         "-f", "--force", help="Override previous runs", action="store_true"
     )
     parser.add_argument("-o", "--output", help="Output plot to file", default=None)
@@ -199,8 +202,12 @@ def main():
     args = parser.parse_args()
     path, ext = os.path.splitext(args.path)
 
-    compilers = [args.compiler] if args.compiler is not None else co.COMPILERS
-    archs = [args.arch] if args.arch is not None else co.ARCHS
+    if args.clang_native:
+        compilers = [co.clang]
+        archs = [co.native]
+    else:
+        compilers = [args.compiler] if args.compiler is not None else co.COMPILERS
+        archs = [args.arch] if args.arch is not None else co.ARCHS
 
     plt.style.use("./report.mplstyle")
     # When outputing to png format, we need a higher DPI.

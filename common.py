@@ -44,7 +44,7 @@ COMPILER_LABELS = {
 
 ARCH_LABELS = {
     native: "native",
-    generic: "generic",
+    generic: "x86-64",
 }
 
 STRATEGIES = [deep_first, breadth_first, interleaved, reverse_breadth_first]
@@ -54,7 +54,7 @@ ARCHS = [native, generic]
 
 def find_dsp(path):
     if path.endswith(".dsp"):
-        return path
+        return [path]
     if os.path.isdir(path):
         return [
             os.path.join(path, f)

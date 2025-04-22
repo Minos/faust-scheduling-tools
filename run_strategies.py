@@ -20,7 +20,8 @@ class Run:
 
     def exec(self, run_number, override):
         output = f"{self.path}.r{run_number}.csv"
-        if not override and os.path.exists(output):
+        if not override and os.path.exists(output) \
+                and os.path.getmtime(output) > os.path.getmtime(self.path):
             return
 
         print(f"  RUN    {self.program_name} "

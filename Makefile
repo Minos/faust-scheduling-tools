@@ -1,8 +1,10 @@
 BENCHARCH := bencharch.cpp
 BENCHDIREXT := bench
+PLOTARCH := plotarch.cpp
+PLOTDIREXT := plot
 DSP := dsp
 FAUST := ./faust
-FAUSTLANG := ocpp
+FAUSTLANG ?= ocpp
 
 CC ?= clang
 CXX ?= clang++
@@ -21,15 +23,27 @@ cpp_sources = \
 		$(foreach s, $(STRATEGIES), \
 			$(DSP)/$(f).$(BENCHDIREXT)/$(f)_ss$(s).cpp))
 
+cpp_tests = \
+	$(foreach f, $(faust_programs), \
+		$(foreach s, $(STRATEGIES), \
+			$(DSP)/$(f).$(PLOTDIREXT)/$(f)_ss$(s).cpp))
+
 binaries = \
 	$(foreach cpp, $(cpp_sources), \
 		$(foreach cc, $(COMPILERS), \
 			$(foreach arch, $(ARCHS), \
 				$(basename $(cpp))_$(cc)_$(arch))))
 
+test_binaries = \
+	$(foreach f, $(faust_programs), \
+		$(foreach s, $(STRATEGIES), \
+			$(DSP)/$(f).$(PLOTDIREXT)/$(f)_ss$(s)))
+
 all: binaries
 
 binaries: $(binaries)
+
+test: $(test_binaries)
 
 cpp: $(cpp_sources)
 
@@ -37,7 +51,7 @@ events: events.c
 	$(CC) -lpfm $< -o $@
 
 clean:
-	@rm -f $(cpp_sources) $(binaries)
+	@rm -f $(cpp_sources) $(binaries) $(cpp_tests) $(test_binaries)
 
 
 define FAUST_BUILD
@@ -48,9 +62,26 @@ $(DSP)/$(1).$(BENCHDIREXT)/$(1)_ss$(2).cpp: $(DSP)/$(1).dsp $(BENCHARCH)
 
 endef
 
+define FAUST_TEST_BUILD
+$(DSP)/$(1).$(PLOTDIREXT)/$(1)_ss$(2).cpp: $(DSP)/$(1).dsp $(PLOTARCH)
+	@echo "  FAUST " $(1) [strategy $(2), plot]
+	@mkdir -p $$(dir $$@)
+	@$(FAUST) -a $(PLOTARCH) -lang $(FAUSTLANG) -ss $(2) $$< -o $$@
+
+endef
+
+define CPP_TEST_BUILD
+$(DSP)/$(1).$(PLOTDIREXT)/$(1)_ss$(2): $(DSP)/$(1).$(PLOTDIREXT)/$(1)_ss$(2).cpp
+	@echo "  CXX   " $(1) [strategy $(2), plot]
+	@$(CXX) -O0 -march=native $$< -o $$@
+
+endef
+
 $(foreach f, $(faust_programs), \
 	$(foreach s, $(STRATEGIES), \
-		$(eval $(call FAUST_BUILD,$(f),$(s)))))
+		$(eval $(call FAUST_BUILD,$(f),$(s))) \
+		$(eval $(call FAUST_TEST_BUILD,$(f),$(s))) \
+		$(eval $(call CPP_TEST_BUILD,$(f),$(s)))))
 
 define CPP_BUILD
 $(DSP)/$(1).$(BENCHDIREXT)/$(1)_ss$(2)_$(3)_$(4): $(DSP)/$(1).$(BENCHDIREXT)/$(1)_ss$(2).cpp
