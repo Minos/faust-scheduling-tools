@@ -50,6 +50,13 @@ fcschedtool test <process.dsp>
 ```
 
 
+Examples
+--------
+
+The `dsp` folder contains a bunch of examples, taken from the [faust repository][1], that produce
+particularly significant differences between the available scheduling policies.
+
+
 
 [1]: https://github.com/grame-cncm/faust
 [2]: https://github.com/orlarey/faustcompilerbenchtool
