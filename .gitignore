@@ -1,2 +1,2 @@
-*.bench
-*.plot
+*.fcsched
+__pycache__/

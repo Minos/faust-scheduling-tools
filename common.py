@@ -1,7 +1,15 @@
 import os
+import matplotlib.pyplot as plt
 
 # Superscalar vector size
 scaling_factor = 4
+
+root_dir = os.path.dirname(os.path.abspath(__file__))
+
+build_dir_ext = "fcsched"
+faust_bencharch = os.path.join(root_dir, "arch/bencharch.cpp")
+faust_testarch = os.path.join(root_dir, "arch/testarch.cpp")
+faust_lang = "ocpp"
 
 deep_first = "0"
 breadth_first = "1"
@@ -17,11 +25,12 @@ generic = "x86-64"
 time = "time(ns)"
 cycles = "cycles"
 instructions = "instructions"
-stalls_total = "stalls_total"
-stalls_mem = "stalls_mem_any"
+stalls_total = "cycle_activity:stalls_total"
+stalls_mem = "cycle_activity:stalls_mem_any"
 
+stalls_event_list = [cycles, instructions, stalls_mem, stalls_total]
 
-STRATEGY_LABELS = {
+strategy_labels = {
     deep_first: "deep-first",
     breadth_first: "breadth-first",
     interleaved: "interleaved",
@@ -29,7 +38,7 @@ STRATEGY_LABELS = {
     custom: "custom",
 }
 
-STRATEGY_LABELS_SHORT = {
+strategy_labels_short = {
     deep_first: "DF",
     breadth_first: "BF",
     interleaved: "I",
@@ -37,27 +46,42 @@ STRATEGY_LABELS_SHORT = {
     custom: "CUS",
 }
 
-COMPILER_LABELS = {
+compiler_labels = {
     clang: "clang",
     gcc: "gcc",
 }
 
-ARCH_LABELS = {
+arch_labels = {
     native: "native",
     generic: "x86-64",
 }
 
-STRATEGIES = [deep_first, breadth_first, interleaved, reverse_breadth_first]
-COMPILERS = [clang, gcc]
-ARCHS = [native, generic]
+strategies = [deep_first, breadth_first, interleaved, reverse_breadth_first]
+compilers = [clang, gcc]
+archs = [native, generic]
 
 
-def find_dsp(path):
+def find_dsp(path) -> list[str]:
     if path.endswith(".dsp"):
         return [path]
     if os.path.isdir(path):
-        return [
-            os.path.join(path, f)
-            for f in os.listdir(path)
-            if f.endswith(".dsp")
-        ]
+        programs = [os.path.join(path, f) for f in os.listdir(path) if f.endswith(".dsp")]
+        return sorted(programs, key=str.lower)
+    else:
+        return []
+
+
+def find_faust():
+    try:
+        return os.environ['FAUST']
+    except KeyError:
+        return "faust"
+
+
+def setup_matplotlib(output):
+    style = "./report.mplstyle"
+    if os.path.exists(style):
+        plt.style.use(style)
+    # When outputing to png format, we need a higher DPI.
+    if output:
+        plt.rcParams["figure.dpi"] = 512

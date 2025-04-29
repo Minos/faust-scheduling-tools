@@ -1,0 +1,127 @@
+#!/usr/bin/env python3
+
+import argparse
+import os
+
+import common
+import plot
+import test
+
+
+class ArgError(BaseException):
+    message: str
+
+    def __init__(self, message: str):
+        self.message = message
+
+    def __str__(self):
+        return self.message
+
+
+def main():
+    parser = argparse.ArgumentParser(prog='fcschedtool')
+
+    subparsers = parser.add_subparsers(required=True)
+
+    ###################
+    # plot subcommand #
+    ###################
+    parser_plot = subparsers.add_parser(
+        "plot", help="plot perf events over time for given DSP program"
+    )
+
+    parser_plot.add_argument('path', help='FAUST program')
+    parser_plot.add_argument(
+        '--compilers', action='append', default=[],
+        help=f'A comma-separated list of compilers '
+             f'(from {', '.join(common.compilers)}) default: {common.compilers[0]}',
+    )
+    parser_plot.add_argument(
+        '--archs', action='append', default=[],
+        help=f'A comma-separated list of archs '
+             f'(from {', '.join(common.archs)}) default: {common.archs[0]}',
+    )
+    parser_plot.add_argument(
+        '--all', help='Try all available compilers and archs', action='store_true'
+    )
+    parser_plot.add_argument(
+        '-e', '--events', action='append', default=[],
+        help='A comma-separated list of linux perf events to measure'
+    )
+    parser_plot.add_argument(
+        '-n', default=1000,
+        help='Number of loops to run'
+    )
+    parser_plot.add_argument(
+        '-f', '--force', help='Override previous runs', action='store_true'
+    )
+    parser_plot.add_argument('-o', '--output', help='Output plot to file', default=None)
+    parser_plot.set_defaults(func=plot_command)
+
+    ###################
+    # test subcommand #
+    ###################
+    parser_test = subparsers.add_parser(
+        "test",
+        help="check that all scheduling strategies produce the same impulse response",
+    )
+    parser_test.add_argument('path', help='FAUST program')
+    parser_test.set_defaults(func=test_command)
+
+    args = parser.parse_args()
+    try:
+        args.func(args)
+    except ArgError as err:
+        print(err)
+        parser.print_help()
+
+
+def plot_command(args):
+    _, ext = os.path.splitext(args.path)
+    if ext != ".dsp":
+        raise ArgError(f"{args.path} is not a FAUST dsp file")
+
+    if args.all:
+        compilers = common.compilers
+        archs = common.archs
+    else:
+        compilers = sum([arg.split(",") for arg in args.compilers], []) or common.compilers[:1]
+        if 'all' in compilers:
+            compilers = common.compilers
+
+        archs = sum([arg.split(",") for arg in args.archs], []) or common.archs[:1]
+        if 'all' in archs:
+            archs = common.archs
+
+    events = sum([arg.split(",") for arg in args.events], [])
+
+    common.setup_matplotlib(args.output)
+
+    if len(events) == 0:
+        plot.plot_multiple_runs(
+            args.path, compilers, archs,
+            output_file=args.output,
+            nloops=args.n,
+            override=args.force,
+        )
+    else:
+        plot.plot_multiple_runs(
+            args.path, compilers, archs,
+            output_file=args.output,
+            nloops=args.n,
+            override=args.force,
+            events=events,
+            plot_fn=plot.plot_events,
+        )
+
+
+def test_command(args):
+    files = common.find_dsp(args.path)
+    if len(files) == 0:
+        raise ArgError(f"{args.path} no FAUST dsp files found in {args.path}")
+
+    test.run_tests(files)
+
+
+if __name__ == '__main__':
+    main()
