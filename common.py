@@ -27,6 +27,7 @@ cycles = "cycles"
 instructions = "instructions"
 stalls_total = "cycle_activity:stalls_total"
 stalls_mem = "cycle_activity:stalls_mem_any"
+nop = "inst_retired.nop"
 
 stalls_event_list = [cycles, instructions, stalls_mem, stalls_total]
 
@@ -59,16 +60,6 @@ arch_labels = {
 strategies = [deep_first, breadth_first, interleaved, reverse_breadth_first]
 compilers = [clang, gcc]
 archs = [native, generic]
-
-
-def find_dsp(path) -> list[str]:
-    if path.endswith(".dsp"):
-        return [path]
-    if os.path.isdir(path):
-        programs = [os.path.join(path, f) for f in os.listdir(path) if f.endswith(".dsp")]
-        return sorted(programs, key=str.lower)
-    else:
-        return []
 
 
 def find_faust():

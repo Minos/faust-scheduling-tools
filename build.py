@@ -1,4 +1,5 @@
 from __future__ import annotations
+from typing import Optional
 
 import multiprocessing
 import os
@@ -9,22 +10,23 @@ import common
 
 
 def build_benchmarks(
-    dsp, *,
+    dsp_list, *,
     strategies=common.strategies,
     compilers=common.compilers,
     archs=common.archs
 ):
     tasks: list[Task] = []
 
-    for s in strategies:
-        faust_task = FaustBenchTask(dsp, s)
-        tasks += [faust_task]
+    for dsp in dsp_list:
+        make_build_dir(dsp)
+        for s in strategies:
+            faust_task = FaustBenchTask(dsp, s)
+            tasks += [faust_task]
 
-        cpp_tasks = [CppBenchTask(dsp, s, c, a, deps=[faust_task])
-                     for c in compilers for a in archs]
-        tasks += cpp_tasks
+            cpp_tasks = [CppBenchTask(dsp, s, c, a, deps=[faust_task])
+                         for c in compilers for a in archs]
+            tasks += cpp_tasks
 
-    make_build_dir(dsp)
     scheduler = BuildScheduler(tasks)
     scheduler.run()
 
@@ -56,23 +58,28 @@ def split_prog_name(dsp):
 
 
 def build_dir(directory, prog_name):
-    return os.path.join(directory, f"{prog_name}.{common.build_dir_ext}")
+    return os.path.join(directory,
+                        f'{prog_name}.{common.build_dir_ext}')
 
 
 def bench_cpp_file(directory, prog_name, strategy):
-    return os.path.join(build_dir(directory, prog_name), f"{prog_name}_ss{strategy}_bench.cpp")
+    return os.path.join(build_dir(directory, prog_name),
+                        f'{prog_name}_ss{strategy}_bench.cpp')
 
 
 def bench_binary(directory, prog_name, strategy, compiler, arch):
-    return os.path.join(build_dir(directory, prog_name), f"{prog_name}_ss{strategy}_bench_{compiler}_{arch}")
+    return os.path.join(build_dir(directory, prog_name),
+                        f'{prog_name}_ss{strategy}_bench_{compiler}_{arch}')
 
 
 def test_cpp_file(directory, prog_name, strategy):
-    return os.path.join(build_dir(directory, prog_name), f"{prog_name}_ss{strategy}_test.cpp")
+    return os.path.join(build_dir(directory, prog_name),
+                        f'{prog_name}_ss{strategy}_test.cpp')
 
 
 def test_binary(directory, prog_name, strategy):
-    return os.path.join(build_dir(directory, prog_name), f"{prog_name}_ss{strategy}_test")
+    return os.path.join(build_dir(directory, prog_name),
+                        f'{prog_name}_ss{strategy}_test')
 
 
 class TaskException(BaseException):
@@ -81,8 +88,28 @@ class TaskException(BaseException):
         self.process = process
 
     def __str__(self):
-        command = " ".join(self.task.command())
-        return f"Error building {self.task.product}:\n{command}\n{self.process.stderr}"
+        command = ' '.join(self.task.command())
+        return f'Error building {self.task.product}:\n{command}\n{self.process.stderr}'
+
+
+class TaskDependencyException(TaskException):
+    def __init__(self, task, dependency):
+        self.task = task
+        self.dependency = dependency
+
+    def __str__(self):
+        return f'{self.task.product} could not be built because it depends on ' \
+               f'{self.dependency}, which failed to build.'
+
+
+class SchedulerException(BaseException):
+    errors: list[TaskException]
+
+    def __init__(self, errors):
+        self.errors = errors
+
+    def __str__(self):
+        return '\n'.join([str(e) for e in self.errors])
 
 
 class Task:
@@ -91,18 +118,20 @@ class Task:
     deps: list[Task]
     running: bool
     complete: bool
+    failed: bool
 
     def __init__(self, sources: list[str], product: str, deps: list[Task] = []):
         self.sources = sources
         self.product = product
         self.deps = deps
         self.running = False
+        self.failed = False
         self.complete = self.is_up_to_date()
 
     def is_up_to_date(self) -> bool:
         if not os.path.exists(self.product):
             return False
-        for s in self.sources:
+        for s in self.dependencies():
             if not os.path.exists(s):
                 return False
             if os.path.getmtime(s) > os.path.getmtime(self.product):
@@ -113,9 +142,13 @@ class Task:
         return all(d.complete for d in self.deps)
 
     def run(self):
+        for d in self.deps:
+            if d.failed:
+                raise TaskDependencyException(self, d)
+
         self.print_info()
         # debug = ' '.join(self.command())
-        # print(f"\033[2m{debug}\033[22m")
+        # print(f'\033[2m{debug}\033[22m')
         process = subprocess.run(self.command(), capture_output=True, text=True)
         if process.returncode:
             raise TaskException(self, process)
@@ -124,18 +157,20 @@ class Task:
         return self.sources
 
     def command(self) -> list[str]:
-        raise Exception("Not implemented")
+        raise Exception('Not implemented')
 
     def print_info(self):
         pass
 
 
 class FaustTask(Task):
+    src: str
     arch: str
     prog: str
     strategy: str
 
     def __init__(self, src, arch, strategy, output):
+        self.src = src
         _, self.prog = split_prog_name(src)
         self.arch = arch
         self.strategy = strategy
@@ -147,22 +182,33 @@ class FaustTask(Task):
 
     def command(self):
         return [common.find_faust(),
-                "-a", self.arch,
-                "-lang", common.faust_lang,
-                "-ss", self.strategy,
-                "-o", self.product,
+                '-a', self.arch,
+                '-lang', common.faust_lang,
+                '-ss', self.strategy,
+                '-o', self.product,
                 self.sources[0]]
 
     def print_info(self):
-        print(f"  FAUST  {self.prog} [strategy {self.strategy}]")
+        print(f'  FAUST  {self.src} [strategy {self.strategy}]')
+
+    def run(self):
+        # Faust sometimes outputs an empty C++ file upon failure. It's better
+        # to delete it, otherwise the next run will consider this file as
+        # valid and try to compile it.
+        try:
+            super(FaustTask, self).run()
+        except TaskException as err:
+            if os.path.exists(self.product):
+                os.remove(self.product)
+            raise err
 
 
 class FaustBenchTask(FaustTask):
     def __init__(self, src, strategy):
         super(FaustBenchTask, self).__init__(
-                src, 
-                common.faust_bencharch, 
-                strategy, 
+                src,
+                common.faust_bencharch,
+                strategy,
                 bench_cpp_file(*split_prog_name(src), strategy)
         )
 
@@ -170,41 +216,53 @@ class FaustBenchTask(FaustTask):
 class FaustTestTask(FaustTask):
     def __init__(self, src, strategy):
         super(FaustTestTask, self).__init__(
-                src, 
-                common.faust_testarch, 
-                strategy, 
+                src,
+                common.faust_testarch,
+                strategy,
                 test_cpp_file(*split_prog_name(src), strategy)
         )
 
 
 class CppBenchTask(Task):
+    directory: str
+    dsp: str
+    strategy: str
+    compiler: str
+    arch: str
+
     def __init__(self, dsp, strategy, compiler, arch, deps):
-        directory, self.prog = split_prog_name(dsp)
+        self.dsp = dsp
+        self.directory, self.prog = split_prog_name(dsp)
         self.strategy = strategy
         self.compiler = compiler
         self.arch = arch
 
         super(CppBenchTask, self).__init__(
-            [bench_cpp_file(directory, self.prog, strategy)],
-            bench_binary(directory, self.prog, strategy, compiler, arch),
+            [bench_cpp_file(self.directory, self.prog, strategy)],
+            bench_binary(self.directory, self.prog, strategy, compiler, arch),
             deps=deps
         )
 
     def command(self):
         return [self.compiler,
-                f"-march={self.arch}",
-                "-O3", "-ffast-math", "--std=c++20",
-                "-lpfm",
+                f'-march={self.arch}',
+                '-O3', '-ffast-math', '--std=c++20',
+                f'-I{self.directory}',
+                '-lpfm',
                 self.sources[0],
-                "-o", self.product]
+                '-o', self.product]
 
     def print_info(self):
-        print(f"  CC     {self.prog} [strategy {self.strategy}, "
-              f"{self.compiler}, {self.arch}]")
+        print(f'  CC     {self.dsp} [strategy {self.strategy}, '
+              f'{self.compiler}, {self.arch}]')
 
 
 class CppTestTask(Task):
+    dsp: str
+    strategy: str
+
     def __init__(self, dsp, strategy, deps):
+        self.dsp = dsp
         directory, self.prog = split_prog_name(dsp)
         self.strategy = strategy
 
@@ -215,14 +273,18 @@ class CppTestTask(Task):
         )
 
     def command(self):
-        return [common.clang, "-march=native", "-O0", self.sources[0], "-o", self.product]
+        return [common.clang, '-march=native', '-O0', self.sources[0], '-o', self.product]
 
     def print_info(self):
-        print(f"  CC     {self.prog} [strategy {self.strategy}]")
+        print(f'  CC     {self.dsp} [strategy {self.strategy}]')
 
 
 
 class BuildScheduler:
+    tasks: list[Task]
+    cv: threading.Condition
+    error: Optional[BaseException]
+
     def __init__(self, tasks):
         self.tasks = tasks
         self.cv = threading.Condition()
@@ -246,10 +308,12 @@ class BuildScheduler:
         while (task := self.acquire_next_task()) is not None:
             try:
                 task.run()
-                task.complete = True
-            except BaseException as e:
-                self.error = e
+            except TaskException as e:
+                task.failed = True
+                print(f'\033[31m{e}\033[0m')
             finally:
+                task.running = False
+                task.complete = True
                 with self.cv:
                     self.cv.notify_all()
 
@@ -257,7 +321,7 @@ class BuildScheduler:
         with self.cv:
             while any(not t.complete for t in self.tasks):
                 if self.error is not None:
-                    break
+                    return None
 
                 task = self.next_task()
                 if task is not None:

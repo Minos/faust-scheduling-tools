@@ -53,7 +53,7 @@ fcschedtool test <process.dsp>
 Examples
 --------
 
-The `dsp` folder contains a bunch of examples, taken from the [faust repository][1], that produce
+The `dsp` folder contains a bunch of examples, taken from the [faust repository][4], that produce
 particularly significant differences between the available scheduling policies.
 
 
@@ -61,5 +61,6 @@ particularly significant differences between the available scheduling policies.
 [1]: https://github.com/grame-cncm/faust
 [2]: https://github.com/orlarey/faustcompilerbenchtool
 [3]: https://perfmon2.sourceforge.net/
+[4]: https://github.com/grame-cncm/faust/tree/master-dev/examples
 
 <!-- vim: set tw=100 -->

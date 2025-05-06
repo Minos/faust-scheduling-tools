@@ -1,9 +1,7 @@
 #!/usr/bin/env python
 
-import argparse
 import csv
 import multiprocessing
-import os
 import subprocess
 
 import numpy as np

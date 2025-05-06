@@ -3,8 +3,11 @@
 import argparse
 import os
 
+import build
 import common
 import plot
+import run
+import stats
 import test
 
 
@@ -23,49 +26,69 @@ def main():
 
     subparsers = parser.add_subparsers(required=True)
 
+    ####################
+    # build subcommand #
+    ####################
+    parser_build = subparsers.add_parser(
+        'build', help='pre-build perf measuring binaries for the given DSP programs'
+    )
+    parser_build.add_argument(
+        'path', help='FAUST program or directory containing FAUST programs'
+    )
+    add_build_arguments(parser_build)
+    parser_build.set_defaults(func=build_command)
+
+    ####################
+    # run subcommand #
+    ####################
+    parser_run = subparsers.add_parser(
+        'run', help='pre-run perf measures for the given DSP programs'
+    )
+    parser_run.add_argument(
+        'path', help='FAUST program or directory containing FAUST programs'
+    )
+    add_build_arguments(parser_run)
+    add_run_arguments(parser_run)
+    parser_run.set_defaults(func=run_command)
+
     ###################
     # plot subcommand #
     ###################
     parser_plot = subparsers.add_parser(
-        "plot", help="plot perf events over time for given DSP program"
+        'plot', help='plot perf events over time for given DSP program'
     )
 
     parser_plot.add_argument('path', help='FAUST program')
-    parser_plot.add_argument(
-        '--compilers', action='append', default=[],
-        help=f'A comma-separated list of compilers '
-             f'(from {', '.join(common.compilers)}) default: {common.compilers[0]}',
-    )
-    parser_plot.add_argument(
-        '--archs', action='append', default=[],
-        help=f'A comma-separated list of archs '
-             f'(from {', '.join(common.archs)}) default: {common.archs[0]}',
-    )
-    parser_plot.add_argument(
-        '--all', help='Try all available compilers and archs', action='store_true'
-    )
-    parser_plot.add_argument(
-        '-e', '--events', action='append', default=[],
-        help='A comma-separated list of linux perf events to measure'
-    )
-    parser_plot.add_argument(
-        '-n', default=1000,
-        help='Number of loops to run'
-    )
-    parser_plot.add_argument(
-        '-f', '--force', help='Override previous runs', action='store_true'
-    )
+    add_build_arguments(parser_plot)
+    add_run_arguments(parser_plot)
     parser_plot.add_argument('-o', '--output', help='Output plot to file', default=None)
     parser_plot.set_defaults(func=plot_command)
+
+    ###################
+    # stat subcommand #
+    ###################
+    parser_stat = subparsers.add_parser(
+        'stat', help='plot perf events over time for given DSP program'
+    )
+
+    parser_stat.add_argument(
+        'path', help='FAUST program or directory containing FAUST programs'
+    )
+    add_build_arguments(parser_stat)
+    add_run_arguments(parser_stat)
+    parser_stat.set_defaults(func=stat_command)
+
 
     ###################
     # test subcommand #
     ###################
     parser_test = subparsers.add_parser(
-        "test",
-        help="check that all scheduling strategies produce the same impulse response",
+        'test',
+        help='check that all scheduling strategies produce the same impulse response',
     )
-    parser_test.add_argument('path', help='FAUST program')
+    parser_test.add_argument(
+        'path', help='FAUST program or directory containing FAUST programs'
+    )
     parser_test.set_defaults(func=test_command)
 
     args = parser.parse_args()
@@ -76,24 +99,109 @@ def main():
         parser.print_help()
 
 
+def add_build_arguments(parser):
+    parser.add_argument(
+        '--compilers', action='append', default=[],
+        help=f'A comma-separated list of compilers '
+             f'(from {', '.join(common.compilers)}) default: {common.compilers[0]}',
+    )
+    parser.add_argument(
+        '--archs', action='append', default=[],
+        help=f'A comma-separated list of archs '
+             f'(from {', '.join(common.archs)}) default: {common.archs[0]}',
+    )
+    parser.add_argument(
+        '--all', help='Build with all available compilers and archs', action='store_true'
+    )
+
+
+def add_run_arguments(parser):
+    parser.add_argument(
+        '-e', '--events', action='append', default=[],
+        help='A comma-separated list of linux perf events to measure'
+    )
+    parser.add_argument(
+        '-n', default=1000,
+        help='Number of loops to run'
+    )
+    parser.add_argument(
+        '-f', '--force', help='Override previous runs', action='store_true'
+    )
+
+
+def find_dsp(path) -> list[str]:
+    def rec_find_dsp(path) -> list[str]:
+        if path.endswith(".dsp"):
+            return [path]
+        if os.path.isdir(path):
+            return sum([rec_find_dsp(os.path.join(path, f))
+                        for f in os.listdir(path)], 
+                       [])
+        return []
+
+    programs = sorted(rec_find_dsp(path), key=str.lower)
+    if len(programs) == 0:
+        raise ArgError(f'No FAUST dsp files found in {path}')
+    return programs
+
+
+def build_list_from_args(provided, default: list[str]):
+    if 'all' in provided:
+        return default
+    else:
+        return sum([arg.split(',') for arg in provided], []) or default[:1]
+
+
+def find_archs_and_compilers(args):
+    if args.all:
+        return common.archs, common.compilers
+    else:
+        return (build_list_from_args(args.archs, common.archs),
+                build_list_from_args(args.compilers, common.compilers))
+
+
+def find_events(args):
+    return sum([arg.split(',') for arg in args.events], [])
+
+
+def build_command(args):
+    files = find_dsp(args.path)
+    archs, compilers = find_archs_and_compilers(args)
+    build.build_benchmarks(files, compilers=compilers, archs=archs)
+
+
+def run_command(args) -> list[run.RunResult]:
+    files = find_dsp(args.path)
+    archs, compilers = find_archs_and_compilers(args)
+    events = find_events(args)
+    if len(events) == 0:
+        events = common.stalls_event_list
+
+    build.build_benchmarks(files, compilers=compilers, archs=archs)
+
+    results: list[run.RunResult] = []
+    for path in files:
+        directory, filename = os.path.split(path)
+        program_name, _ = os.path.splitext(filename)
+
+        results += run.run_strategies(
+            directory, program_name,
+            compilers=compilers,
+            archs=archs,
+            events=events,
+            nloops=args.n,
+            override=args.force,
+        )
+    return results
+
+
 def plot_command(args):
     _, ext = os.path.splitext(args.path)
-    if ext != ".dsp":
-        raise ArgError(f"{args.path} is not a FAUST dsp file")
+    if ext != '.dsp':
+        raise ArgError(f'{args.path} is not a FAUST dsp file')
 
-    if args.all:
-        compilers = common.compilers
-        archs = common.archs
-    else:
-        compilers = sum([arg.split(",") for arg in args.compilers], []) or common.compilers[:1]
-        if 'all' in compilers:
-            compilers = common.compilers
-
-        archs = sum([arg.split(",") for arg in args.archs], []) or common.archs[:1]
-        if 'all' in archs:
-            archs = common.archs
-
-    events = sum([arg.split(",") for arg in args.events], [])
+    archs, compilers = find_archs_and_compilers(args)
+    events = find_events(args)
 
     common.setup_matplotlib(args.output)
 
@@ -115,10 +223,13 @@ def plot_command(args):
         )
 
 
+def stat_command(args):
+    runs = run_command(args)
+    stats.show_statistics(runs)
+
+
 def test_command(args):
-    files = common.find_dsp(args.path)
-    if len(files) == 0:
-        raise ArgError(f"{args.path} no FAUST dsp files found in {args.path}")
+    files = find_dsp(args.path)
 
     test.run_tests(files)
 
