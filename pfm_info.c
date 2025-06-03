@@ -3,7 +3,6 @@
 #include <perfmon/perf_event.h>
 #include <perfmon/pfmlib.h>
 #include <perfmon/pfmlib_perf_event.h>
-#include <string.h>
 
 #define NB_ITER 100000
 
@@ -40,7 +39,12 @@ void print_event_list()
     pfm_for_all_pmus(pmu)
     {
         ret = pfm_get_pmu_info(pmu, &pmu_info);
+        if (ret == PFM_ERR_NOTSUPP || !pmu_info.is_present) {
+            continue;
+        }
+
         if (ret != PFM_SUCCESS || !pmu_info.is_present) {
+            fprintf(stderr, "Could not open PMU: %d (%s)\n", ret, pfm_strerror(ret));
             continue;
         }
 
@@ -57,17 +61,11 @@ void print_event_list()
                 continue;
             }
 
-            printf("%s: %s", event_info.name, event_info.desc);
-
-            if (event_info.equiv != NULL && !strcmp(event_info.equiv, event_info.name)) {
-                printf(" (short for %s)\n", event_info.equiv);
-                continue;
-            } else {
-                printf("\n");
-            }
+            printf("%s: %s\n", event_info.name, event_info.desc);
 
             has_attrs = 0;
-            for (int attr = 0; attr < event_info.nattrs; attr++) {
+            int attr;
+            pfm_for_each_event_attr(attr, &event_info) {
                 ret = pfm_get_event_attr_info(idx, attr, PFM_OS_PERF_EVENT_EXT, &attr_info);
                 if (ret != PFM_SUCCESS) {
                     fprintf(stderr, "Could not get event attr info: %s\n", pfm_strerror(ret));

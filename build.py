@@ -178,7 +178,7 @@ class FaustTask(Task):
         super(FaustTask, self).__init__([src], output)
 
     def dependencies(self):
-        return super(FaustTask, self).dependencies() + [self.arch]
+        return super(FaustTask, self).dependencies() + [self.arch, common.find_faust()]
 
     def command(self):
         return [common.find_faust(),
@@ -277,7 +277,6 @@ class CppTestTask(Task):
 
     def print_info(self):
         print(f'  CC     {self.dsp} [strategy {self.strategy}]')
-
 
 
 class BuildScheduler:

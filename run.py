@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 import hashlib
 import io
+import math
 import os
 import subprocess
 
@@ -115,9 +116,6 @@ def run_strategies(
     nloops=1000,
     override=False
 ):
-    build.build_benchmarks([f'{directory}/{program_name}.dsp'],
-                           compilers=compilers, archs=archs)
-
     runs = [
         Run(directory, program_name, cc, a, s)
         for cc in compilers
@@ -127,3 +125,41 @@ def run_strategies(
 
     return [r.exec(events=events, nloops=nloops, override=override)
             for r in runs]
+
+
+def merge_run_results(results: list[RunResult]) -> RunResult:
+    base = results[0]
+    merge = RunResult(base.run, base.loops, base.events, base.times)
+    for r in results[1:]:
+        merge.loops += r.loops
+        merge.events.update(r.events)
+        merge.times = np.concatenate((merge.times, r.times))
+    return merge
+
+
+def run_strategies_grouped(
+    directory,
+    program_name,
+    *,
+    compilers=co.compilers,
+    archs=co.archs,
+    events=[],
+    nloops=100,
+    override=False
+) -> list[RunResult]:
+    runs = [
+        Run(directory, program_name, cc, a, s)
+        for cc in compilers
+        for a in archs
+        for s in co.strategies
+    ]
+
+    number_of_runs = math.ceil(len(events) / co.max_events_by_run)
+    results = []
+    for r in runs:
+        group = []
+        for i in range(number_of_runs):
+            e = events[i*co.max_events_by_run:(i+1)*co.max_events_by_run]
+            group.append(r.exec(events=e, nloops=nloops, override=override))
+        results.append(merge_run_results(group))
+    return results

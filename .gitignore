@@ -1,2 +1,6 @@
 *.fcsched
+*.dot
+*.pdf
+*.svg
+*.png
 __pycache__/

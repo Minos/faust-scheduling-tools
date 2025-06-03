@@ -165,7 +165,7 @@ static int perf_event_open(perf_event_attr* hw_event, int group_fd)
 static int perf_event_open_named(const char* str, int group_fd)
 {
     int                   ret;
-    perf_event_attr       attr = {};
+    perf_event_attr       attr = {.size = sizeof(perf_event_attr)};
     pfm_perf_encode_arg_t arg  = {.attr = &attr, .size = sizeof(pfm_perf_encode_arg_t)};
 
     ret = pfm_get_os_event_encoding(str, PFM_PLM3, PFM_OS_PERF_EVENT_EXT, &arg);
@@ -340,14 +340,12 @@ int main(int argc, char* argv[])
 
     d->init(44100);
 
+    srand(0);
+
     // Create the input buffers
     FAUSTFLOAT* inputs[256];
     for (int i = 0; i < d->getNumInputs(); i++) {
         inputs[i] = new FAUSTFLOAT[NBSAMPLES];
-        for (int j = 0; j < NBSAMPLES; j++) {
-            inputs[i][j] = 0.0;
-        }
-        inputs[i][0] = 1.0;
     }
 
     // Create the output buffers
@@ -380,6 +378,13 @@ int main(int argc, char* argv[])
     }
 
     for (int i = 0; i < nloops; i++) {
+        // Fill the input buffers with white noise
+        for (int i = 0; i < d->getNumInputs(); i++) {
+            for (int j = 0; j < NBSAMPLES; j++) {
+                inputs[i][j] = -1 + 2 * (rand() / (float) RAND_MAX);
+            }
+        }
+
         for (int c : counters) {
             ioctl(c, PERF_EVENT_IOC_RESET, 0);
         }

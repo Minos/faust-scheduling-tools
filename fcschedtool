@@ -48,7 +48,7 @@ def main():
         'path', help='FAUST program or directory containing FAUST programs'
     )
     add_build_arguments(parser_run)
-    add_run_arguments(parser_run)
+    add_run_arguments(parser_run, True)
     parser_run.set_defaults(func=run_command)
 
     ###################
@@ -60,7 +60,7 @@ def main():
 
     parser_plot.add_argument('path', help='FAUST program')
     add_build_arguments(parser_plot)
-    add_run_arguments(parser_plot)
+    add_run_arguments(parser_plot, False)
     parser_plot.add_argument('-o', '--output', help='Output plot to file', default=None)
     parser_plot.set_defaults(func=plot_command)
 
@@ -68,16 +68,16 @@ def main():
     # stat subcommand #
     ###################
     parser_stat = subparsers.add_parser(
-        'stat', help='plot perf events over time for given DSP program'
+        'stat', help='plot global performances for every strategy, for every event'
     )
 
     parser_stat.add_argument(
         'path', help='FAUST program or directory containing FAUST programs'
     )
     add_build_arguments(parser_stat)
-    add_run_arguments(parser_stat)
+    add_run_arguments(parser_stat, True)
+    parser_stat.add_argument('-o', '--output', help='Output plot to file', default=None)
     parser_stat.set_defaults(func=stat_command)
-
 
     ###################
     # test subcommand #
@@ -115,7 +115,7 @@ def add_build_arguments(parser):
     )
 
 
-def add_run_arguments(parser):
+def add_run_arguments(parser, extended_event_list):
     parser.add_argument(
         '-e', '--events', action='append', default=[],
         help='A comma-separated list of linux perf events to measure'
@@ -126,6 +126,11 @@ def add_run_arguments(parser):
     )
     parser.add_argument(
         '-f', '--force', help='Override previous runs', action='store_true'
+    )
+    parser.add_argument(
+        '-p', '--preset', default=None,
+        help=f'Use a preset event list. Available presets: '
+             f'{', '.join(common.get_preset_events(extended_event_list))}'
     )
 
 
@@ -161,7 +166,15 @@ def find_archs_and_compilers(args):
 
 
 def find_events(args):
-    return sum([arg.split(',') for arg in args.events], [])
+    if args.preset is not None:
+        try:
+            return common.preset_event_lists[args.preset]
+        except KeyError:
+            raise ArgError(f'Preset {args.preset} not found.')
+    events = sum([arg.split(',') for arg in args.events], [])
+    if len(events) == 0:
+        raise ArgError(f'No events provided')
+    return events
 
 
 def build_command(args):
@@ -174,8 +187,6 @@ def run_command(args) -> list[run.RunResult]:
     files = find_dsp(args.path)
     archs, compilers = find_archs_and_compilers(args)
     events = find_events(args)
-    if len(events) == 0:
-        events = common.stalls_event_list
 
     build.build_benchmarks(files, compilers=compilers, archs=archs)
 
@@ -196,21 +207,34 @@ def run_command(args) -> list[run.RunResult]:
 
 
 def plot_command(args):
-    _, ext = os.path.splitext(args.path)
-    if ext != '.dsp':
-        raise ArgError(f'{args.path} is not a FAUST dsp file')
+    files = find_dsp(args.path)
+    if len(files) > 1:
+        raise ArgError(f'This command can only plot one program at a time')
 
     archs, compilers = find_archs_and_compilers(args)
     events = find_events(args)
 
+    build.build_benchmarks(files, compilers=compilers, archs=archs)
+
     common.setup_matplotlib(args.output)
 
-    if len(events) == 0:
+    if args.preset == 'stalls':
         plot.plot_multiple_runs(
             args.path, compilers, archs,
             output_file=args.output,
             nloops=args.n,
             override=args.force,
+            events=events,
+            plot_fn=plot.plot_stalls
+        )
+    elif args.preset == 'uops':
+        plot.plot_multiple_runs(
+            args.path, compilers, archs,
+            output_file=args.output,
+            nloops=args.n,
+            override=args.force,
+            events=events,
+            plot_fn=plot.plot_uops
         )
     else:
         plot.plot_multiple_runs(
@@ -219,18 +243,26 @@ def plot_command(args):
             nloops=args.n,
             override=args.force,
             events=events,
-            plot_fn=plot.plot_events,
         )
 
 
 def stat_command(args):
-    runs = run_command(args)
-    stats.show_statistics(runs)
+    files = find_dsp(args.path)
+    archs, compilers = find_archs_and_compilers(args)
+    events = common.stat_event_list
+
+    build.build_benchmarks(files, compilers=compilers, archs=archs)
+    runs: list[run.RunResult] = []
+    for path in files:
+        directory, program_name = build.split_prog_name(path)
+        runs += run.run_strategies_grouped(directory, program_name,
+                                           compilers=compilers, archs=archs, 
+                                           events=events)
+        plot.plot_multiple_runs_summary(path, compilers, archs, output_file=args.output)
 
 
 def test_command(args):
     files = find_dsp(args.path)
-
     test.run_tests(files)
 
 
