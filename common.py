@@ -10,8 +10,6 @@ max_events_by_run = 4
 root_dir = os.path.dirname(os.path.abspath(__file__))
 
 build_dir_ext = 'fcsched'
-faust_bencharch = os.path.join(root_dir, 'arch/bencharch.cpp')
-faust_testarch = os.path.join(root_dir, 'arch/testarch.cpp')
 faust_lang = 'ocpp'
 
 deep_first = '0'
@@ -46,7 +44,7 @@ llc_load_misses = 'llc-load-misses'
 llc_stores = 'llc-stores'
 llc_store_misses = 'llc-store-misses'
 
-stalls_event_list = [cycles, uops_ge_1, stalls_mem, stalls_total]
+stalls_event_list = [cycles, instructions, stalls_mem, stalls_total]
 uops_event_list = [uops_ge_1, uops_ge_2, uops_ge_3, uops_ge_4]
 stat_event_list = [stalls_total, stalls_mem, uops_ge_1, uops_ge_2, uops_ge_3, uops_ge_4,
                    fp_arith_scalar, fp_arith_packed_2, fp_arith_packed_4,
@@ -80,7 +78,7 @@ strategy_labels_short = {
     breadth_first: 'BF',
     interleaved: 'I',
     reverse_breadth_first: 'RBF',
-    list_scheduling: 'LS',
+    list_scheduling: 'L',
 }
 
 compiler_labels = {

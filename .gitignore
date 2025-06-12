@@ -3,4 +3,5 @@
 *.pdf
 *.svg
 *.png
+*.o
 __pycache__/

@@ -218,32 +218,18 @@ def plot_command(args):
 
     common.setup_matplotlib(args.output)
 
+    plot_fn = plot.plot_events
     if args.preset == 'stalls':
-        plot.plot_multiple_runs(
-            args.path, compilers, archs,
-            output_file=args.output,
-            nloops=args.n,
-            override=args.force,
-            events=events,
-            plot_fn=plot.plot_stalls
-        )
+        plot_fn = plot.plot_stalls
     elif args.preset == 'uops':
-        plot.plot_multiple_runs(
-            args.path, compilers, archs,
-            output_file=args.output,
-            nloops=args.n,
-            override=args.force,
-            events=events,
-            plot_fn=plot.plot_uops
-        )
-    else:
-        plot.plot_multiple_runs(
-            args.path, compilers, archs,
-            output_file=args.output,
-            nloops=args.n,
-            override=args.force,
-            events=events,
-        )
+        plot_fn = plot.plot_uops
+
+    plot.plot_multiple_runs(args.path, compilers, archs,
+                            output_file=args.output,
+                            nloops=args.n,
+                            override=args.force,
+                            events=events,
+                            plot_fn=plot_fn)
 
 
 def stat_command(args):

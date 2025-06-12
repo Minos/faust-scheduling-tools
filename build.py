@@ -9,39 +9,67 @@ import threading
 import common
 
 
+"""
+This is a make-like utility to build benchmarking and testing binaries.
+"""
+
 def build_benchmarks(
     dsp_list, *,
     strategies=common.strategies,
     compilers=common.compilers,
     archs=common.archs
 ):
+    """Build benchmarking binaries for each given faust program
+
+    Keyword arguments:
+    strategies -- scheduling strategies (default all)
+    compilers -- C++ compilers to test (default: [clang++, g++])
+    archs -- architectures to test (default: [native, x86-64])
+    """
     tasks: list[Task] = []
+
+    base_tasks = [CppGenericTask(src) for src in benchmarking_sources]
+    tasks += base_tasks
 
     for dsp in dsp_list:
         make_build_dir(dsp)
         for s in strategies:
-            faust_task = FaustBenchTask(dsp, s)
+            faust_task = FaustTask(dsp, s)
             tasks += [faust_task]
 
-            cpp_tasks = [CppBenchTask(dsp, s, c, a, deps=[faust_task])
-                         for c in compilers for a in archs]
-            tasks += cpp_tasks
+            for c in compilers:
+                for a in archs:
+                    cpp_task = CppBenchTask(dsp, s, c, a, deps=[faust_task])
+                    tasks.append(cpp_task)
+                    ld_task = LdBenchTask(dsp, s, c, a, deps=[cpp_task, *base_tasks])
+                    tasks.append(ld_task)
 
     scheduler = BuildScheduler(tasks)
     scheduler.run()
 
 
 def build_tests(dsp_list, *, strategies=common.strategies):
+    """Build testing binaries for each given faust program
+
+    Keyword arguments:
+    strategies -- scheduling strategies (default: all)
+    """
     tasks: list[Task] = []
+
+    base_tasks = [CppGenericTask(src) for src in testing_sources]
+    tasks += base_tasks
 
     for dsp in dsp_list:
         make_build_dir(dsp)
         for s in strategies:
-            faust_task = FaustTestTask(dsp, s)
-            tasks += [faust_task]
+            faust_task = FaustTask(dsp, s)
+            tasks.append(faust_task)
 
             cpp_task = CppTestTask(dsp, s, deps=[faust_task])
-            tasks += [cpp_task]
+            tasks.append(cpp_task)
+
+            ld_task = LdTestTask(dsp, s, deps=[cpp_task, *base_tasks])
+            tasks.append(ld_task)
 
     scheduler = BuildScheduler(tasks)
     scheduler.run()
@@ -62,9 +90,14 @@ def build_dir(directory, prog_name):
                         f'{prog_name}.{common.build_dir_ext}')
 
 
-def bench_cpp_file(directory, prog_name, strategy):
+def base_cpp_file(directory, prog_name, strategy):
     return os.path.join(build_dir(directory, prog_name),
-                        f'{prog_name}_ss{strategy}_bench.cpp')
+                        f'{prog_name}_ss{strategy}.cpp')
+
+
+def bench_obj_file(directory, prog_name, strategy, compiler, arch):
+    return os.path.join(build_dir(directory, prog_name),
+                        f'{prog_name}_ss{strategy}_{compiler}_{arch}_bench.o')
 
 
 def bench_binary(directory, prog_name, strategy, compiler, arch):
@@ -72,14 +105,33 @@ def bench_binary(directory, prog_name, strategy, compiler, arch):
                         f'{prog_name}_ss{strategy}_bench_{compiler}_{arch}')
 
 
-def test_cpp_file(directory, prog_name, strategy):
+def test_obj_file(directory, prog_name, strategy):
     return os.path.join(build_dir(directory, prog_name),
-                        f'{prog_name}_ss{strategy}_test.cpp')
+                        f'{prog_name}_ss{strategy}_test.o')
 
 
 def test_binary(directory, prog_name, strategy):
     return os.path.join(build_dir(directory, prog_name),
                         f'{prog_name}_ss{strategy}_test')
+
+
+def generic_obj_file(src):
+    base, _ = os.path.splitext(src)
+    return f'{base}.o'
+
+
+faust_architecture_file = os.path.join(common.root_dir, 'arch/mydsp.cpp')
+
+benchmarking_sources = list(map(lambda f: os.path.join(common.root_dir, f), [
+    'arch/dsp_measuring.cpp',
+    'arch/benchmark_quick.cpp',
+    ]))
+benchmarking_objects = list(map(generic_obj_file, benchmarking_sources))
+
+testing_sources = list(map(lambda f: os.path.join(common.root_dir, f), [
+    'arch/test.cpp',
+    ]))
+testing_objects = list(map(generic_obj_file, testing_sources))
 
 
 class TaskException(BaseException):
@@ -112,10 +164,18 @@ class SchedulerException(BaseException):
         return '\n'.join([str(e) for e in self.errors])
 
 
-class Task:
+class Task(object):
+    """Base class for any build task
+
+    Attributes:
+        sources -- list of source files for this tasks
+        product -- product file for this task
+        deps -- list of tasks this task depends on
+    """
     sources: list[str]
     product: str
     deps: list[Task]
+
     running: bool
     complete: bool
     failed: bool
@@ -129,6 +189,10 @@ class Task:
         self.complete = self.is_up_to_date()
 
     def is_up_to_date(self) -> bool:
+        """
+        Returns True iff this tasks's product exists and is newer than all its
+        sources, and all the dependencies have been completed
+        """
         if not os.path.exists(self.product):
             return False
         for s in self.dependencies():
@@ -142,13 +206,13 @@ class Task:
         return all(d.complete for d in self.deps)
 
     def run(self):
+        """Run the task"""
         for d in self.deps:
             if d.failed:
                 raise TaskDependencyException(self, d)
 
         self.print_info()
-        # debug = ' '.join(self.command())
-        # print(f'\033[2m{debug}\033[22m')
+        # print(f'\033[2m{" ".join(self.command())}\033[22m')
         process = subprocess.run(self.command(), capture_output=True, text=True)
         if process.returncode:
             raise TaskException(self, process)
@@ -164,26 +228,32 @@ class Task:
 
 
 class FaustTask(Task):
+    """A task that compiles a FAUST program into a C++ class
+
+    Attributes:
+    src -- a FAUST program
+    strategy -- a scheduling strategy number
+    """
+
     src: str
-    arch: str
-    prog: str
     strategy: str
 
-    def __init__(self, src, arch, strategy, output):
+    def __init__(self, src, strategy):
         self.src = src
-        _, self.prog = split_prog_name(src)
-        self.arch = arch
+        directory, prog = split_prog_name(src)
         self.strategy = strategy
 
-        super(FaustTask, self).__init__([src], output)
+        super(FaustTask, self).__init__([src], base_cpp_file(directory, prog, strategy))
 
     def dependencies(self):
-        return super(FaustTask, self).dependencies() + [self.arch, common.find_faust()]
+        return super(FaustTask, self).dependencies() + benchmarking_sources + \
+                [faust_architecture_file, common.find_faust()]
 
     def command(self):
         return [common.find_faust(),
-                '-a', self.arch,
+                '-a', faust_architecture_file,
                 '-lang', common.faust_lang,
+                # '-sg', # Print signal graph
                 '-ss', self.strategy,
                 '-o', self.product,
                 self.sources[0]]
@@ -203,27 +273,23 @@ class FaustTask(Task):
             raise err
 
 
-class FaustBenchTask(FaustTask):
-    def __init__(self, src, strategy):
-        super(FaustBenchTask, self).__init__(
-                src,
-                common.faust_bencharch,
-                strategy,
-                bench_cpp_file(*split_prog_name(src), strategy)
-        )
+class CppGenericTask(Task):
+    """Compile a C++ file into a C++ object file"""
 
+    def __init__(self, src):
+        super(CppGenericTask, self).__init__([src], generic_obj_file(src))
 
-class FaustTestTask(FaustTask):
-    def __init__(self, src, strategy):
-        super(FaustTestTask, self).__init__(
-                src,
-                common.faust_testarch,
-                strategy,
-                test_cpp_file(*split_prog_name(src), strategy)
-        )
+    def command(self):
+        return [common.clang, '-march=native', '-O2', '--std=c++20', '-c',
+                self.sources[0], '-o', self.product]
+
+    def print_info(self):
+        print(f'  CC     {self.sources[0]}')
 
 
 class CppBenchTask(Task):
+    """Compile a C++ dsp into a C++ object file for benchmarking"""
+
     directory: str
     dsp: str
     strategy: str
@@ -238,8 +304,8 @@ class CppBenchTask(Task):
         self.arch = arch
 
         super(CppBenchTask, self).__init__(
-            [bench_cpp_file(self.directory, self.prog, strategy)],
-            bench_binary(self.directory, self.prog, strategy, compiler, arch),
+            [base_cpp_file(self.directory, self.prog, strategy)],
+            bench_obj_file(self.directory, self.prog, strategy, compiler, arch),
             deps=deps
         )
 
@@ -247,17 +313,79 @@ class CppBenchTask(Task):
         return [self.compiler,
                 f'-march={self.arch}',
                 '-O3', '-ffast-math', '--std=c++20',
-                f'-I{self.directory}',
-                '-lpfm',
+                f'-I{self.directory}', f'-I{common.root_dir}/arch',
                 self.sources[0],
-                '-o', self.product]
+                '-c', '-o', self.product]
 
     def print_info(self):
         print(f'  CC     {self.dsp} [strategy {self.strategy}, '
-              f'{self.compiler}, {self.arch}]')
+              f'{self.compiler}, {self.arch}] (benchmarking)')
+
+
+class LdBenchTask(Task):
+    """Link a C++ object file compiled for benchmarking with the benchmarking program"""
+
+    directory: str
+    dsp: str
+    strategy: str
+    compiler: str
+    arch: str
+
+    def __init__(self, dsp, strategy, compiler, arch, deps):
+        self.dsp = dsp
+        self.directory, self.prog = split_prog_name(dsp)
+        self.strategy = strategy
+        self.compiler = compiler
+        self.arch = arch
+
+        sources = benchmarking_objects + \
+                [bench_obj_file(self.directory, self.prog, strategy, compiler, arch)]
+        product = bench_binary(self.directory, self.prog, strategy, compiler, arch)
+
+        super(LdBenchTask, self).__init__(sources, product, deps=deps)
+
+    def command(self):
+        return [self.compiler,
+                '-lpfm',
+                *self.sources,
+                '-o', self.product]
+
+    def print_info(self):
+        print(f'  LD     {self.dsp} [strategy {self.strategy}, {self.compiler}, {self.arch}]')
 
 
 class CppTestTask(Task):
+    """Compile a C++ dsp into a C++ object file for testing"""
+
+    directory: str
+    dsp: str
+    strategy: str
+
+    def __init__(self, dsp, strategy, deps):
+        self.dsp = dsp
+        self.directory, self.prog = split_prog_name(dsp)
+        self.strategy = strategy
+
+        super(CppTestTask, self).__init__(
+            [base_cpp_file(self.directory, self.prog, strategy)],
+            test_obj_file(self.directory, self.prog, strategy),
+            deps=deps
+        )
+
+    def command(self):
+        return [common.clang,
+                f'-march=native', '-O0',
+                f'-I{self.directory}', f'-I{common.root_dir}/arch',
+                self.sources[0],
+                '-c', '-o', self.product]
+
+    def print_info(self):
+        print(f'  CC     {self.dsp} [strategy {self.strategy}] (testing)')
+
+
+class LdTestTask(Task):
+    """Link a C++ object file compiled for testing with the testing program"""
+
     dsp: str
     strategy: str
 
@@ -266,20 +394,22 @@ class CppTestTask(Task):
         directory, self.prog = split_prog_name(dsp)
         self.strategy = strategy
 
-        super(CppTestTask, self).__init__(
-            [test_cpp_file(directory, self.prog, strategy)],
-            test_binary(directory, self.prog, strategy),
-            deps=deps
-        )
+        sources = testing_objects + \
+                [test_obj_file(directory, self.prog, strategy)]
+        product = test_binary(directory, self.prog, strategy)
+
+        super(LdTestTask, self).__init__(sources, product, deps=deps)
 
     def command(self):
-        return [common.clang, '-march=native', '-O0', self.sources[0], '-o', self.product]
+        return [common.clang, *self.sources, '-o', self.product]
 
     def print_info(self):
-        print(f'  CC     {self.dsp} [strategy {self.strategy}]')
+        print(f'  LD     {self.dsp} [strategy {self.strategy}] (testing)')
 
 
 class BuildScheduler:
+    """Schedule a list of tasks to be executed in a thread pool"""
+
     tasks: list[Task]
     cv: threading.Condition
     error: Optional[BaseException]

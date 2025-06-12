@@ -9,6 +9,7 @@ import common
 import run
 
 
+color_instr = 'xkcd:dark orange'
 color_uops_1 = 'xkcd:pale green'
 color_uops_2 = 'xkcd:light green'
 color_uops_3 = 'xkcd:green'
@@ -55,22 +56,15 @@ def plot_stalls(run_result, ax):
     x = np.arange(1, run_result.loops + 1)
     lw = 0.5
 
-    instr = run_result.events[common.uops_ge_1]
+    instr = run_result.events[common.instructions] / 4
     st_m = run_result.events[common.stalls_mem]
     st_t = run_result.events[common.stalls_total]
 
-    ax.fill_between(
-        x,
-        instr + st_m,
-        instr + st_t,
-        lw=lw,
-        color="xkcd:light purple",
-        label="stalls(other)",
-    )
-    ax.fill_between(
-        x, instr, instr + st_m, lw=lw, color="xkcd:purple", label="stalls(mem)"
-    )
-    ax.fill_between(x, 0, instr, lw=lw, color="#1E7304", label="uops >= 1")
+    ax.fill_between(x, instr + st_m, instr + st_t, 
+                    lw=lw, color=color_stalls_other, label="stalls(other)")
+    ax.fill_between(x, instr, instr + st_m, 
+                    lw=lw, color=color_stalls_memory, label="stalls(mem)")
+    ax.fill_between(x, 0, instr, lw=lw, color=color_instr, label="instr/4")
 
     ax.plot(x, run_result.events[common.cycles], lw=lw, label="cycles", color="black")
 
@@ -109,6 +103,9 @@ def plot_multiple_runs(
     output_file=None, events=[], nloops=1000,
     plot_fn=plot_events, override=False
 ):
+    if output_file:
+        plt.rcParams['figure.dpi'] = 512
+
     directory, filename = os.path.split(path)
     program_name, _ = os.path.splitext(filename)
 
@@ -123,16 +120,23 @@ def plot_multiple_runs(
 
     ymax = max([np.max(run.events[k]) for run in results for k in run.events.keys()]) * 1.1
 
-    ncols = len(compilers) * len(archs)
-    if ncols == 1:
+    nvariants = len(compilers) * len(archs)
+    if nvariants == 1:
         figsize = (6, 6)
-    elif ncols == 2:
+    elif nvariants == 2:
         figsize = (8, 6)
     else:
         figsize = (12, 6)
 
+    if nvariants == 1:
+        ncols = 1
+        nrows = len(common.strategies)
+    else:
+        ncols = len(common.strategies)
+        nrows = nvariants
+
     fig, axes = plt.subplots(
-        len(common.strategies),
+        nrows,
         ncols,
         figsize=figsize,
         sharey=True,
@@ -140,7 +144,7 @@ def plot_multiple_runs(
         squeeze=False,
     )
 
-    for res, ax in zip(results, (axes if len(results) == 16 else axes.T).flatten()):
+    for res, ax in zip(results, (axes if len(results) == 16 else axes).flatten()):
         plot_fn(res, ax)
         ax.set_title(f"{common.strategy_labels[res.run.strategy]}")
         ax.set_title(
@@ -178,6 +182,9 @@ def plot_broken_bar(ax, y, height, sections: list[tuple[np.typing.NDArray, str, 
 
 
 def plot_multiple_runs_summary(path, compilers, archs, *, output_file=None):
+    if output_file:
+        plt.rcParams['figure.dpi'] = 512
+
     directory, program_name = split_prog_name(path)
 
     results = run.run_strategies_grouped(
@@ -194,10 +201,14 @@ def plot_multiple_runs_summary(path, compilers, archs, *, output_file=None):
     height = 1 / (nlines + 0.5)
     thickness = 0.8
 
-    uops_eq_4 = get_denoised_value(common.uops_ge_4, results)
-    uops_eq_3 = get_denoised_value(common.uops_ge_3, results) - uops_eq_4
-    uops_eq_2 = get_denoised_value(common.uops_ge_2, results) - uops_eq_4 - uops_eq_3
-    uops_eq_1 = get_denoised_value(common.uops_ge_1, results) - uops_eq_4 - uops_eq_3 - uops_eq_2
+    uops_ge_4 = get_denoised_value(common.uops_ge_4, results)
+    uops_ge_3 = get_denoised_value(common.uops_ge_3, results)
+    uops_ge_2 = get_denoised_value(common.uops_ge_2, results)
+    uops_ge_1 = get_denoised_value(common.uops_ge_1, results)
+    uops_eq_4 = uops_ge_4
+    uops_eq_3 = uops_ge_3 - uops_ge_4
+    uops_eq_2 = uops_ge_2 - uops_ge_3
+    uops_eq_1 = uops_ge_1 - uops_ge_2
     mem_stalls = get_denoised_value(common.stalls_mem, results)
     other_stalls = get_denoised_value(common.stalls_total, results) - mem_stalls
 
