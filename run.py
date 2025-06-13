@@ -43,13 +43,15 @@ class RunResult:
 
 
 class Run:
-    def __init__(self, directory, program_name, compiler, arch, strategy):
+    def __init__(self, directory, program_name, compiler, arch, strategy, btype):
         self.directory = directory
         self.program_name = program_name
         self.compiler = compiler
         self.arch = arch
         self.strategy = strategy
-        self.path = build.bench_binary(directory, program_name, strategy, compiler, arch)
+        self.btype = btype
+        self.path = build.bench_binary(directory, program_name, strategy,
+                                       compiler, arch, btype)
 
     def print_run_info(self):
         print(f'  RUN    {self.directory}/{self.program_name}.dsp '
@@ -58,21 +60,22 @@ class Run:
     def output(self, events, nloops):
         measures = f'events: {sorted(events)}, nloops: {nloops}'
         run_hash = hashlib.sha1(measures.encode('utf-8')).hexdigest()[:8]
-        return f'{self.path}.{run_hash}.csv'
+        btype_suffix = f'_{self.btype}' if self.btype is not None else ''
+        return f'{self.path}{btype_suffix}.{run_hash}.csv'
 
     def exec(self, *, events=[], nloops=1000, override=False):
-        output = None
-        if not override:
-            output = self.output(events, nloops)
-            if (os.path.exists(output)
-                    and os.path.getmtime(output) > os.path.getmtime(self.path)):
-                with open(output) as f:
-                    return parse_run_output(self, f)
+        output = self.output(events, nloops)
+        if not override \
+                and os.path.exists(output) \
+                and os.path.getmtime(output) > os.path.getmtime(self.path):
+            with open(output) as f:
+                return parse_run_output(self, f)
 
         self.print_run_info()
 
         cmd = [self.path,
                '-r',
+               '-o', output,
                '-n', str(nloops),
                '-e', ','.join(events)]
 
@@ -81,11 +84,8 @@ class Run:
         if proc.returncode != 0:
             raise RunException(cmd, proc)
 
-        if output is not None:
-            with open(output, 'w') as f:
-                print(proc.stdout, file=f)
-
-        return parse_run_output(self, io.StringIO(proc.stdout))
+        with open(output) as f:
+            return parse_run_output(self, f)
 
 
 def parse_run_output(run, output) -> RunResult:
@@ -112,12 +112,13 @@ def run_strategies(
     *,
     compilers=co.compilers,
     archs=co.archs,
+    btype=None,
     events=[],
     nloops=1000,
     override=False
 ):
     runs = [
-        Run(directory, program_name, cc, a, s)
+        Run(directory, program_name, cc, a, s, btype)
         for cc in compilers
         for a in archs
         for s in co.strategies
@@ -143,12 +144,13 @@ def run_strategies_grouped(
     *,
     compilers=co.compilers,
     archs=co.archs,
+    btype=None,
     events=[],
     nloops=100,
     override=False
 ) -> list[RunResult]:
     runs = [
-        Run(directory, program_name, cc, a, s)
+        Run(directory, program_name, cc, a, s, btype)
         for cc in compilers
         for a in archs
         for s in co.strategies

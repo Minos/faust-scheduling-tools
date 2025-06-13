@@ -1,9 +1,13 @@
+#ifndef __MYDSP_H__
+#define __MYDSP_H__
+
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
 
 #include <faust/dsp/dsp.h>
+#include <faust/gui/meta.h>
 
 class UI {
    public:
@@ -44,10 +48,6 @@ class UI {
     }
 };
 
-class Meta {
-   public:
-    virtual ~Meta() {}
-    virtual void declare(const char* key, const char* value) = 0;
-};
-
 dsp* create_dsp();
+
+#endif

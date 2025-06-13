@@ -113,6 +113,10 @@ def add_build_arguments(parser):
     parser.add_argument(
         '--all', help='Build with all available compilers and archs', action='store_true'
     )
+    parser.add_argument(
+        '--alsa', help='Benchmark in realtime with the ALSA architecture',
+        action='store_true'
+    )
 
 
 def add_run_arguments(parser, extended_event_list):
@@ -177,10 +181,19 @@ def find_events(args):
     return events
 
 
+def find_btype(args):
+    if args.alsa:
+        return 'alsa'
+    else:
+        return None
+
+
 def build_command(args):
     files = find_dsp(args.path)
     archs, compilers = find_archs_and_compilers(args)
-    build.build_benchmarks(files, compilers=compilers, archs=archs)
+    benchmarking_type = 'alsa' if args.alsa else None
+    build.build_benchmarks(files, compilers=compilers, archs=archs,
+                           benchmarking_type=benchmarking_type)
 
 
 def run_command(args) -> list[run.RunResult]:
@@ -188,17 +201,18 @@ def run_command(args) -> list[run.RunResult]:
     archs, compilers = find_archs_and_compilers(args)
     events = find_events(args)
 
-    build.build_benchmarks(files, compilers=compilers, archs=archs)
+    build_command(args)
 
     results: list[run.RunResult] = []
     for path in files:
         directory, filename = os.path.split(path)
         program_name, _ = os.path.splitext(filename)
 
-        results += run.run_strategies(
+        results += run.run_strategies_grouped(
             directory, program_name,
             compilers=compilers,
             archs=archs,
+            btype=find_btype(args),
             events=events,
             nloops=args.n,
             override=args.force,
@@ -214,7 +228,7 @@ def plot_command(args):
     archs, compilers = find_archs_and_compilers(args)
     events = find_events(args)
 
-    build.build_benchmarks(files, compilers=compilers, archs=archs)
+    # build_command(args)
 
     common.setup_matplotlib(args.output)
 
@@ -225,6 +239,7 @@ def plot_command(args):
         plot_fn = plot.plot_uops
 
     plot.plot_multiple_runs(args.path, compilers, archs,
+                            btype=find_btype(args),
                             output_file=args.output,
                             nloops=args.n,
                             override=args.force,
@@ -237,14 +252,15 @@ def stat_command(args):
     archs, compilers = find_archs_and_compilers(args)
     events = common.stat_event_list
 
-    build.build_benchmarks(files, compilers=compilers, archs=archs)
-    runs: list[run.RunResult] = []
+    build_command(args)
+
     for path in files:
         directory, program_name = build.split_prog_name(path)
-        runs += run.run_strategies_grouped(directory, program_name,
-                                           compilers=compilers, archs=archs, 
-                                           events=events)
-        plot.plot_multiple_runs_summary(path, compilers, archs, output_file=args.output)
+        runs = run.run_strategies_grouped(directory, program_name,
+                                          compilers=compilers, archs=archs, 
+                                          btype=find_btype(args),
+                                          events=events)
+        plot.plot_multiple_runs_summary(path, runs, output_file=args.output)
 
 
 def test_command(args):

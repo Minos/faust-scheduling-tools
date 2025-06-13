@@ -17,7 +17,8 @@ def build_benchmarks(
     dsp_list, *,
     strategies=common.strategies,
     compilers=common.compilers,
-    archs=common.archs
+    archs=common.archs,
+    benchmarking_type=None
 ):
     """Build benchmarking binaries for each given faust program
 
@@ -25,10 +26,12 @@ def build_benchmarks(
     strategies -- scheduling strategies (default all)
     compilers -- C++ compilers to test (default: [clang++, g++])
     archs -- architectures to test (default: [native, x86-64])
+    benchmarking_type -- if 'alsa' is given, we're building the benchmarks with
+                         the alsa architecture
     """
     tasks: list[Task] = []
 
-    base_tasks = [CppGenericTask(src) for src in benchmarking_sources]
+    base_tasks = [CppArchTask(src) for src in benchmarking_sources(benchmarking_type)]
     tasks += base_tasks
 
     for dsp in dsp_list:
@@ -41,7 +44,8 @@ def build_benchmarks(
                 for a in archs:
                     cpp_task = CppBenchTask(dsp, s, c, a, deps=[faust_task])
                     tasks.append(cpp_task)
-                    ld_task = LdBenchTask(dsp, s, c, a, deps=[cpp_task, *base_tasks])
+                    ld_task = LdBenchTask(dsp, s, c, a, deps=[cpp_task, *base_tasks],
+                                          benchmarking_type=benchmarking_type)
                     tasks.append(ld_task)
 
     scheduler = BuildScheduler(tasks)
@@ -56,7 +60,7 @@ def build_tests(dsp_list, *, strategies=common.strategies):
     """
     tasks: list[Task] = []
 
-    base_tasks = [CppGenericTask(src) for src in testing_sources]
+    base_tasks = [CppArchTask(src) for src in testing_sources]
     tasks += base_tasks
 
     for dsp in dsp_list:
@@ -100,9 +104,10 @@ def bench_obj_file(directory, prog_name, strategy, compiler, arch):
                         f'{prog_name}_ss{strategy}_{compiler}_{arch}_bench.o')
 
 
-def bench_binary(directory, prog_name, strategy, compiler, arch):
+def bench_binary(directory, prog_name, strategy, compiler, arch, benchmarking_type=None):
     return os.path.join(build_dir(directory, prog_name),
-                        f'{prog_name}_ss{strategy}_bench_{compiler}_{arch}')
+                        f'{prog_name}_ss{strategy}_bench_{compiler}_{arch}'
+                        f'{benchmarking_type_suffix(benchmarking_type)}')
 
 
 def test_obj_file(directory, prog_name, strategy):
@@ -115,23 +120,57 @@ def test_binary(directory, prog_name, strategy):
                         f'{prog_name}_ss{strategy}_test')
 
 
+def full_path(f):
+    return os.path.join(common.root_dir, f)
+
+
 def generic_obj_file(src):
     base, _ = os.path.splitext(src)
     return f'{base}.o'
 
 
+def benchmarking_type_suffix(benchmarking_type):
+    if benchmarking_type == 'alsa':
+        return '_alsa'
+    else:
+        return ''
+
+
 faust_architecture_file = os.path.join(common.root_dir, 'arch/mydsp.cpp')
 
-benchmarking_sources = list(map(lambda f: os.path.join(common.root_dir, f), [
-    'arch/dsp_measuring.cpp',
-    'arch/benchmark_quick.cpp',
-    ]))
-benchmarking_objects = list(map(generic_obj_file, benchmarking_sources))
+def benchmarking_sources(benchmarking_type):
+    if benchmarking_type == 'alsa':
+        return [
+                'arch/benchmark_alsa.cpp',
+                'arch/dsp_measuring.cpp',
+                'arch/pfm_utils.cpp',
+                ]
+    else:
+        return [
+                'arch/benchmark.cpp',
+                'arch/dsp_measuring.cpp',
+                'arch/pfm_utils.cpp',
+                ]
 
-testing_sources = list(map(lambda f: os.path.join(common.root_dir, f), [
-    'arch/test.cpp',
-    ]))
-testing_objects = list(map(generic_obj_file, testing_sources))
+
+testing_sources = [
+        'arch/test.cpp',
+        ]
+
+
+def faust_prefix_include_flags():
+    prefix = os.environ.get('FAUST_PREFIX')
+    if prefix is not None:
+        return [f'-I{prefix}/architecture']
+    else:
+        return []
+
+
+def extra_ld_flags(benchmarking_type):
+    if benchmarking_type == 'alsa':
+        return ['-lasound']
+    else:
+        return []
 
 
 class TaskException(BaseException):
@@ -246,7 +285,7 @@ class FaustTask(Task):
         super(FaustTask, self).__init__([src], base_cpp_file(directory, prog, strategy))
 
     def dependencies(self):
-        return super(FaustTask, self).dependencies() + benchmarking_sources + \
+        return super(FaustTask, self).dependencies() + \
                 [faust_architecture_file, common.find_faust()]
 
     def command(self):
@@ -273,18 +312,22 @@ class FaustTask(Task):
             raise err
 
 
-class CppGenericTask(Task):
-    """Compile a C++ file into a C++ object file"""
+class CppArchTask(Task):
+    """Compile a C++ file from the arch folder into a C++ object file"""
+
+    src: str
 
     def __init__(self, src):
-        super(CppGenericTask, self).__init__([src], generic_obj_file(src))
+        self.src = src
+        super(CppArchTask, self).__init__([full_path(src)], generic_obj_file(src))
 
     def command(self):
         return [common.clang, '-march=native', '-O2', '--std=c++20', '-c',
+                *faust_prefix_include_flags(),
                 self.sources[0], '-o', self.product]
 
     def print_info(self):
-        print(f'  CC     {self.sources[0]}')
+        print(f'  CC     {self.src}')
 
 
 class CppBenchTask(Task):
@@ -319,7 +362,7 @@ class CppBenchTask(Task):
 
     def print_info(self):
         print(f'  CC     {self.dsp} [strategy {self.strategy}, '
-              f'{self.compiler}, {self.arch}] (benchmarking)')
+              f'{self.compiler}, {self.arch}]')
 
 
 class LdBenchTask(Task):
@@ -330,23 +373,27 @@ class LdBenchTask(Task):
     strategy: str
     compiler: str
     arch: str
+    benchmarking_type: Optional[str]
 
-    def __init__(self, dsp, strategy, compiler, arch, deps):
+    def __init__(self, dsp, strategy, compiler, arch, deps, benchmarking_type=None):
         self.dsp = dsp
         self.directory, self.prog = split_prog_name(dsp)
         self.strategy = strategy
         self.compiler = compiler
         self.arch = arch
+        self.benchmarking_type = benchmarking_type
 
-        sources = benchmarking_objects + \
-                [bench_obj_file(self.directory, self.prog, strategy, compiler, arch)]
-        product = bench_binary(self.directory, self.prog, strategy, compiler, arch)
+        sources = [full_path(generic_obj_file(s)) 
+                   for s in benchmarking_sources(benchmarking_type)] + \
+                  [bench_obj_file(self.directory, self.prog, strategy, compiler, arch)]
+        product = bench_binary(self.directory, self.prog, strategy, compiler, arch, 
+                               benchmarking_type)
 
         super(LdBenchTask, self).__init__(sources, product, deps=deps)
 
     def command(self):
         return [self.compiler,
-                '-lpfm',
+                '-lpfm', *extra_ld_flags(self.benchmarking_type),
                 *self.sources,
                 '-o', self.product]
 
@@ -380,7 +427,7 @@ class CppTestTask(Task):
                 '-c', '-o', self.product]
 
     def print_info(self):
-        print(f'  CC     {self.dsp} [strategy {self.strategy}] (testing)')
+        print(f'  CC     {self.dsp} [strategy {self.strategy}]')
 
 
 class LdTestTask(Task):
@@ -394,7 +441,7 @@ class LdTestTask(Task):
         directory, self.prog = split_prog_name(dsp)
         self.strategy = strategy
 
-        sources = testing_objects + \
+        sources = [full_path(generic_obj_file(s)) for s in testing_sources] + \
                 [test_obj_file(directory, self.prog, strategy)]
         product = test_binary(directory, self.prog, strategy)
 
@@ -404,7 +451,7 @@ class LdTestTask(Task):
         return [common.clang, *self.sources, '-o', self.product]
 
     def print_info(self):
-        print(f'  LD     {self.dsp} [strategy {self.strategy}] (testing)')
+        print(f'  LD     {self.dsp} [strategy {self.strategy}]')
 
 
 class BuildScheduler:

@@ -1,17 +1,11 @@
-#include <perfmon/perf_event.h>
-#include <perfmon/pfmlib_perf_event.h>
-#include <sys/ioctl.h>
-#include <sys/syscall.h>
-#include <sys/types.h>
-#include <unistd.h>
-
-#include <cstdlib>
-#include <cstring>
 #include <fstream>
 #include <iostream>
 
-#include "mydsp.h"
+#include <unistd.h>
+
 #include "dsp_measuring.h"
+#include "mydsp.h"
+#include "pfm_utils.h"
 
 #define NBSAMPLES 512
 #define NBITERATIONS 1000
@@ -20,30 +14,6 @@ static void print_usage(int argc, char* argv[])
 {
     std::cerr << "Usage: " << argv[0]
               << " [-o output] [-e events] [-n number_of_loops] [-b buffer_size]" << std::endl;
-}
-
-static void check_pfm_return_code(int code)
-{
-    if (code != PFM_SUCCESS) {
-        std::cerr << "Error: " << pfm_strerror(code) << std::endl;
-        pfm_terminate();
-        exit(code);
-    }
-}
-
-static void parse_events(const char* arg, std::vector<std::string>& events)
-{
-    const char* event = arg;
-    const char* end;
-    size_t      size;
-
-    while ((end = strchr(event, ',')) != NULL) {
-        size = end - event;
-        events.emplace_back(event, size);
-        event = end + 1;
-    }
-
-    events.emplace_back(event);
 }
 
 int main(int argc, char* argv[])
@@ -64,7 +34,7 @@ int main(int argc, char* argv[])
                 output_path.emplace(optarg);
                 break;
             case 'e':
-                parse_events(optarg, events);
+                pfm_utils_parse_events(optarg, events);
                 break;
             case 'n':
                 nloops = atoi(optarg);
@@ -87,7 +57,9 @@ int main(int argc, char* argv[])
         raw = true;
     }
 
-    self_measuring_dsp   d(create_dsp(), nloops);
+    pfm_utils_initialize();
+
+    self_measuring_dsp d(create_dsp(), nloops);
 
     UI ui;
     d.buildUserInterface(&ui);
@@ -112,7 +84,6 @@ int main(int argc, char* argv[])
         }
     }
 
-    check_pfm_return_code(pfm_initialize());
     d.observe_events(events);
 
     while (!d.start_reached()) {
@@ -134,7 +105,7 @@ int main(int argc, char* argv[])
         d.compute(nsamples, input, output);
     }
 
-    pfm_terminate();
+    pfm_utils_terminate();
 
     for (int it = 0; it < nloops; it++) {
         for (int ch = 0; ch < d.getNumInputs(); ch++) {

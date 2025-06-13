@@ -100,7 +100,7 @@ def plot_events(run_result, ax):
 
 def plot_multiple_runs(
     path, compilers, archs, *,
-    output_file=None, events=[], nloops=1000,
+    btype=None, output_file=None, events=[], nloops=1000,
     plot_fn=plot_events, override=False
 ):
     if output_file:
@@ -113,6 +113,7 @@ def plot_multiple_runs(
         directory, program_name,
         compilers=compilers,
         archs=archs,
+        btype=btype,
         events=events,
         nloops=nloops,
         override=override
@@ -181,19 +182,14 @@ def plot_broken_bar(ax, y, height, sections: list[tuple[np.typing.NDArray, str, 
     ax.bar_label(rects, labels=[legend for _ in y], padding=4, fontsize=8)
 
 
-def plot_multiple_runs_summary(path, compilers, archs, *, output_file=None):
+def plot_multiple_runs_summary(path, runs, *, output_file=None):
     if output_file:
         plt.rcParams['figure.dpi'] = 512
 
-    directory, program_name = split_prog_name(path)
-
-    results = run.run_strategies_grouped(
-            directory, program_name, 
-            compilers=compilers, archs=archs,
-            events=common.stat_event_list)
+    _, program_name = split_prog_name(path)
 
     nlines = 3
-    nticks = len(results)
+    nticks = len(runs)
     y = np.arange(nticks)
 
     fig, ax = plt.subplots()
@@ -201,16 +197,16 @@ def plot_multiple_runs_summary(path, compilers, archs, *, output_file=None):
     height = 1 / (nlines + 0.5)
     thickness = 0.8
 
-    uops_ge_4 = get_denoised_value(common.uops_ge_4, results)
-    uops_ge_3 = get_denoised_value(common.uops_ge_3, results)
-    uops_ge_2 = get_denoised_value(common.uops_ge_2, results)
-    uops_ge_1 = get_denoised_value(common.uops_ge_1, results)
+    uops_ge_4 = get_denoised_value(common.uops_ge_4, runs)
+    uops_ge_3 = get_denoised_value(common.uops_ge_3, runs)
+    uops_ge_2 = get_denoised_value(common.uops_ge_2, runs)
+    uops_ge_1 = get_denoised_value(common.uops_ge_1, runs)
     uops_eq_4 = uops_ge_4
     uops_eq_3 = uops_ge_3 - uops_ge_4
     uops_eq_2 = uops_ge_2 - uops_ge_3
     uops_eq_1 = uops_ge_1 - uops_ge_2
-    mem_stalls = get_denoised_value(common.stalls_mem, results)
-    other_stalls = get_denoised_value(common.stalls_total, results) - mem_stalls
+    mem_stalls = get_denoised_value(common.stalls_mem, runs)
+    other_stalls = get_denoised_value(common.stalls_total, runs) - mem_stalls
 
     plot_broken_bar(ax, y, height * thickness, [
         (uops_eq_4, 'cycles with 4 uops', color_uops_4),
@@ -222,15 +218,15 @@ def plot_multiple_runs_summary(path, compilers, archs, *, output_file=None):
     ], legend='cycles')
 
     plot_broken_bar(ax, y + height, height * thickness, [
-        (4 * get_denoised_value(common.fp_arith_packed_4, results), '4-packed fp ops', color_vec4),
-        (2 * get_denoised_value(common.fp_arith_packed_2, results), '2-packed fp ops', color_vec2),
-        (get_denoised_value(common.fp_arith_scalar, results), 'scalar fp ops', color_scalar),
+        (4 * get_denoised_value(common.fp_arith_packed_4, runs), '4-packed fp ops', color_vec4),
+        (2 * get_denoised_value(common.fp_arith_packed_2, runs), '2-packed fp ops', color_vec2),
+        (get_denoised_value(common.fp_arith_scalar, runs), 'scalar fp ops', color_scalar),
     ], legend='vectorization')
 
-    l1_dcache_store_misses = get_denoised_value(common.l1_dcache_store_misses, results)
-    l1_dcache_load_misses = get_denoised_value(common.l1_dcache_load_misses, results)
-    l1_dcache_stores = get_denoised_value(common.l1_dcache_stores, results)
-    l1_dcache_loads = get_denoised_value(common.l1_dcache_loads, results)
+    l1_dcache_store_misses = get_denoised_value(common.l1_dcache_store_misses, runs)
+    l1_dcache_load_misses = get_denoised_value(common.l1_dcache_load_misses, runs)
+    l1_dcache_stores = get_denoised_value(common.l1_dcache_stores, runs)
+    l1_dcache_loads = get_denoised_value(common.l1_dcache_loads, runs)
     l1_total = l1_dcache_store_misses + l1_dcache_load_misses + l1_dcache_stores + l1_dcache_loads
 
     plot_broken_bar(ax, y + height * 2, height * thickness, [
@@ -239,7 +235,7 @@ def plot_multiple_runs_summary(path, compilers, archs, *, output_file=None):
     ], total=l1_total, legend='memory access')
 
     ax.invert_yaxis()
-    yticks = [f'{common.strategy_labels_short[r.run.strategy]}' for r in results]
+    yticks = [f'{common.strategy_labels_short[r.run.strategy]}' for r in runs]
     ax.set_yticks(y + height * (nlines / 2 - 0.5), yticks)
     ax.margins(x=0.2)
 

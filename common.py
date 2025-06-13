@@ -98,7 +98,8 @@ archs = [native, generic]
 
 def find_faust():
     try:
-        return os.environ['FAUST']
+        prefix = os.environ['FAUST_PREFIX']
+        return os.path.join(prefix, 'build/bin/faust')
     except KeyError:
         return 'faust'
 

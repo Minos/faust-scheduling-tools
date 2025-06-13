@@ -1,9 +1,13 @@
 #include <chrono>
 #include <cmath>
 #include <iostream>
+#include <mutex>
+
+#include <perfmon/pfmlib_perf_event.h>
+
+#include "pfm_utils.h"
 
 #include "dsp_measuring.h"
-
 
 self_measuring_dsp::self_measuring_dsp(dsp* dsp, int nb_iterations)
     : decorator_dsp(dsp), nb_iterations(nb_iterations), durations(nb_iterations)
@@ -12,16 +16,10 @@ self_measuring_dsp::self_measuring_dsp(dsp* dsp, int nb_iterations)
 
 void self_measuring_dsp::observe_event(const std::string& event_name)
 {
-    int fd = perf_event_open_named(event_name.c_str(), main_counter);
-    if (main_counter == -1) {
-        main_counter = fd;
-    }
-    perf_counters.push_back(fd);
+    events.emplace_back(event_name);
 
     // Pre-allocate measures buffer
     perf_measures.emplace_back(nb_iterations);
-
-    events.emplace_back(event_name);
 }
 
 void self_measuring_dsp::observe_events(const std::vector<std::string>& event_names)
@@ -31,8 +29,23 @@ void self_measuring_dsp::observe_events(const std::vector<std::string>& event_na
     }
 }
 
+void self_measuring_dsp::open_events()
+{
+    for (const auto& event : events) {
+        int fd = pfm_utils_open_named_event(event.c_str(), main_counter);
+        if (main_counter == -1) {
+            main_counter = fd;
+        }
+        perf_counters.push_back(fd);
+    }
+}
+
 void self_measuring_dsp::compute(int count, float** inputs, float** outputs)
 {
+    if (events.size() > 0 && perf_counters.size() == 0) {
+        open_events();
+    }
+
     for (auto c : perf_counters) {
         ioctl(c, PERF_EVENT_IOC_RESET, 0);
     }
@@ -60,6 +73,10 @@ void self_measuring_dsp::compute(int count, float** inputs, float** outputs)
     }
 
     current_iteration++;
+
+    if (current_iteration == nb_iterations) {
+        end_cv.notify_all();
+    }
 }
 
 bool self_measuring_dsp::start_reached() const
@@ -75,6 +92,12 @@ bool self_measuring_dsp::end_reached() const
 int self_measuring_dsp::get_current_iteration() const
 {
     return current_iteration;
+}
+
+void self_measuring_dsp::wait()
+{
+    std::unique_lock lock(end_mutex);
+    end_cv.wait(lock);
 }
 
 void self_measuring_dsp::print_measures_pretty(std::ostream& output) const
@@ -169,24 +192,4 @@ void print_statistics(std::ostream& output, const std::vector<long long>& array,
            << ", "
            << "\033[92mmin: " << fmt(stat.min) << ", "
            << "\033[91mmax: " << fmt(stat.max) << "\033[0m\n";
-}
-
-int perf_event_open_named(const char* str, int group_fd)
-{
-    int                   ret;
-    perf_event_attr       attr = {.size = sizeof(perf_event_attr)};
-    pfm_perf_encode_arg_t arg  = {.attr = &attr, .size = sizeof(pfm_perf_encode_arg_t)};
-
-    ret = pfm_get_os_event_encoding(str, PFM_PLM3, PFM_OS_PERF_EVENT_EXT, &arg);
-    if (ret != PFM_SUCCESS) {
-        std::cerr << "Error opening event " << str << ": " << pfm_strerror(ret) << std::endl;
-        pfm_terminate();
-        exit(ret);
-    }
-
-    attr.disabled       = 1;
-    attr.exclude_kernel = 1;
-    attr.exclude_hv     = 1;
-
-    return syscall(SYS_perf_event_open, &attr, 0, -1, group_fd, 0);
 }
