@@ -177,7 +177,7 @@ class RunException(BaseException):
         )
 
 
-@dataclass(frozen=True)
+@dataclass
 class FaustTest:
     program: FaustProgram
     faust_strategies: List[FaustStrategy] = field(default_factory=FaustStrategy.all)
@@ -186,7 +186,7 @@ class FaustTest:
         return self.program.test_path(faust_strategy)
 
 
-@dataclass(frozen=True)
+@dataclass
 class FaustTestRun:
     test: FaustTest
 
@@ -207,13 +207,13 @@ class FaustTestRun:
         return numpy.array(response, dtype=numpy.float32).T
 
 
-@dataclass(frozen=True)
+@dataclass
 class FaustTestResult:
     test: FaustTest
     outputs: Dict[FaustStrategy, NDArray]
 
 
-@dataclass(frozen=True)
+@dataclass
 class FaustBenchmark:
     program: FaustProgram
 
@@ -353,6 +353,22 @@ class FaustTestingPlan:
         scheduler = BuildScheduler(tasks)
         scheduler.run()
 
+        # Remove failed tasks from the test so the plan can still go on with the others
+        for task in tasks:
+            if task.failed:
+                if isinstance(task, FaustTask):
+                    for t in tests:
+                        if t.program != task.program:
+                            continue
+                        t.faust_strategies = [s for s in t.faust_strategies
+                                              if s != task.strategy]
+                elif isinstance(task, FaustTestTask):
+                    for t in tests:
+                        if t.program != task.test.program:
+                            continue
+                        t.faust_strategies = [s for s in t.faust_strategies 
+                                              if s != task.faust_strategy]
+
         return tests
 
     def run(self) -> List[FaustTestResult]:
@@ -420,6 +436,22 @@ class FaustBenchmarkingPlan:
         scheduler = BuildScheduler(tasks)
         scheduler.run()
 
+        # Remove failed tasks from the test so the plan can still go on with the others
+        for task in tasks:
+            if task.failed:
+                if isinstance(task, FaustTask):
+                    for b in benchmarks:
+                        if b.program != task.program:
+                            continue
+                        b.faust_strategies = [s for s in b.faust_strategies
+                                              if s != task.strategy]
+                elif isinstance(task, FaustBenchmarkTask):
+                    for b in benchmarks:
+                        if b.program != task.benchmark.program:
+                            continue
+                        b.faust_strategies = [s for s in b.faust_strategies 
+                                              if s != task.faust_strategy]
+
         return benchmarks
 
     def run(self) -> List[FaustBenchmarkResult]:
@@ -447,20 +479,30 @@ def make(target: str):
                      target])
 
 
+@dataclass
 class TaskException(BaseException):
-    def __init__(self, task, process):
-        self.task = task
-        self.process = process
+    task: Task
+
+
+@dataclass
+class RecordedTaskException(TaskException):
+    def __str__(self):
+        return f'Not rebuilding {self.task.product} due to recorded previous error.'
+
+
+@dataclass
+class TaskRunException(TaskException):
+    task: Task
+    process: subprocess.CompletedProcess
 
     def __str__(self):
         command = ' '.join(self.task.command())
         return f'Error building {self.task.product}:\n{command}\n{self.process.stderr}'
 
 
+@dataclass
 class TaskDependencyException(TaskException):
-    def __init__(self, task, dependency):
-        self.task = task
-        self.dependency = dependency
+    dependency: Task
 
     def __str__(self):
         return f'{self.task.product} could not be built because it depends on ' \
@@ -510,16 +552,28 @@ class Task:
         if self.is_up_to_date():
             return
 
-        """Run the task"""
         for d in self.dependencies:
             if d.failed:
                 raise TaskDependencyException(self, d)
 
+        recorded_error = f'{self.product}.failure'
+        if os.path.exists(recorded_error) and \
+                all(os.path.exists(s) and 
+                    os.path.getmtime(s) < os.path.getmtime(recorded_error)
+                    for s in self.sources + self.extra_dependencies()):
+            raise RecordedTaskException(self)
+
+        """Run the task"""
         self.print_info()
         # print(f'\033[2m{" ".join(self.command())}\033[22m')
         process = subprocess.run(self.command(), capture_output=True, text=True)
         if process.returncode:
-            raise TaskException(self, process)
+            with open(recorded_error, 'w') as f:
+                f.write(process.stderr)
+            raise TaskRunException(self, process)
+        elif os.path.exists(recorded_error):
+            # Remove previously recorded error in case of success
+            os.remove(recorded_error)
 
     def extra_dependencies(self) -> List[str]:
         return []
@@ -538,6 +592,7 @@ class FaustTask(Task):
     code -- The FAUST code generation to process
     """
 
+    program: FaustProgram
     strategy: FaustStrategy
 
     def __init__(self, program: FaustProgram, strategy: FaustStrategy):
@@ -567,7 +622,7 @@ class FaustTask(Task):
         # valid and try to compile it.
         try:
             super(FaustTask, self).run()
-        except TaskException as err:
+        except TaskRunException as err:
             if os.path.exists(self.product):
                 os.remove(self.product)
             raise err
