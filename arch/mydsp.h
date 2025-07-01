@@ -48,6 +48,4 @@ class UI {
     }
 };
 
-dsp* create_dsp();
-
 #endif

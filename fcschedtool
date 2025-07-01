@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 
+from typing import List
+
 import argparse
 import os
 
-import build
-import common
-import plot
-import run
-import stats
-import test
+from build import (FaustProgram, FaustBenchmarkingPlan, FaustTestingPlan,
+                   Compiler, Architecture, BenchType)
+from test import run_tests
+from plot import plot_benchmark_loops, plot_benchmark_summary, PlotType
 
 
 class ArgError(BaseException):
@@ -25,71 +25,11 @@ def main():
     parser = argparse.ArgumentParser(prog='fcschedtool')
 
     subparsers = parser.add_subparsers(required=True)
-
-    ####################
-    # build subcommand #
-    ####################
-    parser_build = subparsers.add_parser(
-        'build', help='pre-build perf measuring binaries for the given DSP programs'
-    )
-    parser_build.add_argument(
-        'path', help='FAUST program or directory containing FAUST programs'
-    )
-    add_build_arguments(parser_build)
-    parser_build.set_defaults(func=build_command)
-
-    ####################
-    # run subcommand #
-    ####################
-    parser_run = subparsers.add_parser(
-        'run', help='pre-run perf measures for the given DSP programs'
-    )
-    parser_run.add_argument(
-        'path', help='FAUST program or directory containing FAUST programs'
-    )
-    add_build_arguments(parser_run)
-    add_run_arguments(parser_run, True)
-    parser_run.set_defaults(func=run_command)
-
-    ###################
-    # plot subcommand #
-    ###################
-    parser_plot = subparsers.add_parser(
-        'plot', help='plot perf events over time for given DSP program'
-    )
-
-    parser_plot.add_argument('path', help='FAUST program')
-    add_build_arguments(parser_plot)
-    add_run_arguments(parser_plot, False)
-    parser_plot.add_argument('-o', '--output', help='Output plot to file', default=None)
-    parser_plot.set_defaults(func=plot_command)
-
-    ###################
-    # stat subcommand #
-    ###################
-    parser_stat = subparsers.add_parser(
-        'stat', help='plot global performances for every strategy, for every event'
-    )
-
-    parser_stat.add_argument(
-        'path', help='FAUST program or directory containing FAUST programs'
-    )
-    add_build_arguments(parser_stat)
-    add_run_arguments(parser_stat, True)
-    parser_stat.add_argument('-o', '--output', help='Output plot to file', default=None)
-    parser_stat.set_defaults(func=stat_command)
-
-    ###################
-    # test subcommand #
-    ###################
-    parser_test = subparsers.add_parser(
-        'test',
-        help='check that all scheduling strategies produce the same impulse response',
-    )
-    parser_test.add_argument(
-        'path', help='FAUST program or directory containing FAUST programs'
-    )
-    parser_test.set_defaults(func=test_command)
+    add_build_parser(subparsers)
+    add_run_parser(subparsers)
+    add_plot_parser(subparsers)
+    add_summary_parser(subparsers)
+    add_test_parser(subparsers)
 
     args = parser.parse_args()
     try:
@@ -99,24 +39,82 @@ def main():
         parser.print_help()
 
 
+def add_build_parser(subparsers):
+    parser = subparsers.add_parser(
+        'build', help='pre-build perf measuring binaries for the given DSP programs'
+    )
+    add_path_argument(parser)
+    add_build_arguments(parser)
+    parser.set_defaults(func=build_command)
+
+
+def add_run_parser(subparsers):
+    parser = subparsers.add_parser(
+        'run', help='pre-run perf measures for the given DSP programs'
+    )
+    add_path_argument(parser)
+    add_build_arguments(parser)
+    add_run_arguments(parser, True)
+    parser.set_defaults(func=run_command)
+
+
+def add_plot_parser(subparsers):
+    parser = subparsers.add_parser(
+        'plot',
+        help='plot perf events over time for given DSP program'
+    )
+    add_path_argument(parser)
+    add_build_arguments(parser)
+    add_run_arguments(parser, False)
+    parser.add_argument('-o', '--output', help='Output plot to file', default=None)
+    parser.set_defaults(func=plot_command)
+
+
+def add_summary_parser(subparsers):
+    parser = subparsers.add_parser(
+        'summary',
+        help='plot global performances for every strategy, for every event'
+    )
+    add_path_argument(parser)
+    add_build_arguments(parser)
+    add_run_arguments(parser, True)
+    parser.add_argument('-o', '--output', help='Output plot to file', default=None)
+    parser.set_defaults(func=summary_command)
+
+
+def add_test_parser(subparsers):
+    parser = subparsers.add_parser(
+        'test',
+        help='check that all scheduling strategies produce the same impulse response',
+    )
+    add_path_argument(parser)
+    parser.set_defaults(func=test_command)
+
+
+def add_path_argument(parser):
+    parser.add_argument(
+        'path',
+        help='FAUST program or directory containing FAUST programs',
+        nargs='+'
+    )
+
+
 def add_build_arguments(parser):
-    parser.add_argument(
-        '--compilers', action='append', default=[],
-        help=f'A comma-separated list of compilers '
-             f'(from {', '.join(common.compilers)}) default: {common.compilers[0]}',
-    )
-    parser.add_argument(
-        '--archs', action='append', default=[],
-        help=f'A comma-separated list of archs '
-             f'(from {', '.join(common.archs)}) default: {common.archs[0]}',
-    )
-    parser.add_argument(
-        '--all', help='Build with all available compilers and archs', action='store_true'
-    )
-    parser.add_argument(
-        '--alsa', help='Benchmark in realtime with the ALSA architecture',
-        action='store_true'
-    )
+    parser.add_argument('--clang',
+                        help='Build with clang (default)',
+                        action='store_true')
+    parser.add_argument('--gcc',
+                        help='Build with gcc',
+                        action='store_true')
+    parser.add_argument('--native',
+                        help='Build with -march=native (default)',
+                        action='store_true')
+    parser.add_argument('--generic',
+                        help='Build without -march=native',
+                        action='store_true')
+    parser.add_argument('--exhaustive',
+                        help='Build with gcc and clang, with and without -march=native',
+                        action='store_true')
 
 
 def add_run_arguments(parser, extended_event_list):
@@ -134,138 +132,121 @@ def add_run_arguments(parser, extended_event_list):
     parser.add_argument(
         '-p', '--preset', default=None,
         help=f'Use a preset event list. Available presets: '
-             f'{', '.join(common.get_preset_events(extended_event_list))}'
+             f'{", ".join(PlotType.all(extended_event_list))}'
+    )
+    parser.add_argument(
+        '--alsa', action='store_true',
+        help='Run tests with the ALSA backend',
+    )
+    parser.add_argument(
+        '--basic', action='store_true',
+        help='Run tests with the simple backend (default)'
     )
 
 
-def find_dsp(path) -> list[str]:
-    def rec_find_dsp(path) -> list[str]:
+def build_command(args):
+    plan = create_benchmarking_plan(args, build_only=True)
+    plan.build()
+
+
+def run_command(args):
+    plan = create_benchmarking_plan(args)
+    plan.run()
+
+
+def test_command(args):
+    plan = create_testing_plan(args)
+    tests = plan.build()
+    run_tests(tests)
+
+
+def plot_command(args):
+    plan = create_benchmarking_plan(args)
+    benchmarks = plan.build()
+    for benchmark in benchmarks:
+        plot_benchmark_loops(benchmark, 
+                             plot_type=PlotType.parse(args.preset),
+                             output_directory=args.output)
+
+
+def summary_command(args):
+    plan = create_benchmarking_plan(args)
+    plan.events = PlotType.SUMMARY.events()
+    plan.loops = 100
+    benchmarks = plan.build()
+
+    for benchmark in benchmarks:
+        plot_benchmark_summary(benchmark,
+                               output_directory=args.output)
+
+
+def find_dsp(paths: List[str]) -> List[str]:
+    def rec_find_dsp(path: str) -> list[str]:
         if path.endswith(".dsp"):
             return [path]
         if os.path.isdir(path):
             return sum([rec_find_dsp(os.path.join(path, f))
-                        for f in os.listdir(path)], 
+                        for f in os.listdir(path)],
                        [])
         return []
 
-    programs = sorted(rec_find_dsp(path), key=str.lower)
+    programs = sorted(sum([rec_find_dsp(p) for p in paths], []), key=str.lower)
     if len(programs) == 0:
-        raise ArgError(f'No FAUST dsp files found in {path}')
+        raise ArgError(f'No FAUST dsp files found in {paths}')
     return programs
 
 
-def build_list_from_args(provided, default: list[str]):
-    if 'all' in provided:
-        return default
-    else:
-        return sum([arg.split(',') for arg in provided], []) or default[:1]
-
-
-def find_archs_and_compilers(args):
-    if args.all:
-        return common.archs, common.compilers
-    else:
-        return (build_list_from_args(args.archs, common.archs),
-                build_list_from_args(args.compilers, common.compilers))
+def build_list_from_args(provided):
+    return sum([arg.split(',') for arg in provided], [])
 
 
 def find_events(args):
     if args.preset is not None:
         try:
-            return common.preset_event_lists[args.preset]
-        except KeyError:
+            return PlotType(args.preset).events()
+        except ValueError:
             raise ArgError(f'Preset {args.preset} not found.')
     events = sum([arg.split(',') for arg in args.events], [])
-    if len(events) == 0:
-        raise ArgError(f'No events provided')
     return events
 
 
-def find_btype(args):
+def create_benchmarking_plan(args, *, build_only=False) -> FaustBenchmarkingPlan:
+    programs = [FaustProgram(dsp) for dsp in find_dsp(args.path)]
+    plan = FaustBenchmarkingPlan(programs)
+
+    if args.exhaustive:
+        plan.compilers = Compiler.all()
+        plan.architectures = Architecture.all()
+
+    if args.clang:
+        plan.compilers = [Compiler.CLANG]
+    elif args.gcc:
+        plan.compilers = [Compiler.GCC]
+
+    if args.native:
+        plan.architectures = [Architecture.NATIVE]
+    elif args.generic:
+        plan.architectures = [Architecture.X86_64]
+
+    if build_only:
+        return plan
+
     if args.alsa:
-        return 'alsa'
-    else:
-        return None
+        plan.bench_type = BenchType.ALSA
+    elif args.basic:
+        plan.bench_type = BenchType.BASIC
+
+    plan.events = find_events(args)
+    plan.loops = args.n
+    plan.override = args.force
+
+    return plan
 
 
-def build_command(args):
-    files = find_dsp(args.path)
-    archs, compilers = find_archs_and_compilers(args)
-    benchmarking_type = 'alsa' if args.alsa else None
-    build.build_benchmarks(files, compilers=compilers, archs=archs,
-                           benchmarking_type=benchmarking_type)
-
-
-def run_command(args) -> list[run.RunResult]:
-    files = find_dsp(args.path)
-    archs, compilers = find_archs_and_compilers(args)
-    events = find_events(args)
-
-    build_command(args)
-
-    results: list[run.RunResult] = []
-    for path in files:
-        directory, filename = os.path.split(path)
-        program_name, _ = os.path.splitext(filename)
-
-        results += run.run_strategies_grouped(
-            directory, program_name,
-            compilers=compilers,
-            archs=archs,
-            btype=find_btype(args),
-            events=events,
-            nloops=args.n,
-            override=args.force,
-        )
-    return results
-
-
-def plot_command(args):
-    files = find_dsp(args.path)
-    if len(files) > 1:
-        raise ArgError(f'This command can only plot one program at a time')
-
-    archs, compilers = find_archs_and_compilers(args)
-    events = find_events(args)
-
-    # build_command(args)
-
-    common.setup_matplotlib(args.output)
-
-    plot_fn = plot.plot_events
-    if args.preset == 'stalls':
-        plot_fn = plot.plot_stalls
-    elif args.preset == 'uops':
-        plot_fn = plot.plot_uops
-
-    plot.plot_multiple_runs(args.path, compilers, archs,
-                            btype=find_btype(args),
-                            output_file=args.output,
-                            nloops=args.n,
-                            override=args.force,
-                            events=events,
-                            plot_fn=plot_fn)
-
-
-def stat_command(args):
-    files = find_dsp(args.path)
-    archs, compilers = find_archs_and_compilers(args)
-    events = common.stat_event_list
-
-    build_command(args)
-
-    for path in files:
-        directory, program_name = build.split_prog_name(path)
-        runs = run.run_strategies_grouped(directory, program_name,
-                                          compilers=compilers, archs=archs, 
-                                          btype=find_btype(args),
-                                          events=events)
-        plot.plot_multiple_runs_summary(path, runs, output_file=args.output)
-
-
-def test_command(args):
-    files = find_dsp(args.path)
-    test.run_tests(files)
+def create_testing_plan(args) -> FaustTestingPlan:
+    programs = [FaustProgram(dsp) for dsp in find_dsp(args.path)]
+    plan = FaustTestingPlan(programs)
+    return plan
 
 
 if __name__ == '__main__':

@@ -34,7 +34,11 @@ const T& max(const T& a, const T& b)
 << includeIntrinsic >>
 << includeclass >>
 
+extern "C"
+{
+
 dsp* create_dsp()
 {
     return new mydsp();
+}
 }

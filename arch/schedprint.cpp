@@ -1,13 +1,26 @@
 #include <iostream>
 
+#include "load.h"
 #include "mydsp.h"
 
 #define NBSAMPLES 44100
 #define IMPULSE_SIZE 441
 
+static void print_usage(int argc, char* argv[])
+{
+    std::cerr << "Usage: " << argv[0] << " program.so" << std::endl;
+}
+
 int main(int argc, char* argv[])
 {
-    dsp* d = create_dsp();
+    int nprograms = argc - 1;
+    if (nprograms != 1) {
+        print_usage(argc, argv);
+        exit(1);
+    }
+
+    void *handle;
+    dsp* d = load_shared_dsp(argv[1], &handle);
 
     if (d == nullptr) {
         std::cerr << "Failed to create DSP object\n";
@@ -46,6 +59,8 @@ int main(int argc, char* argv[])
         }
         std::cout << std::endl;
     }
+
+    unload_shared_dsp(d, handle);
 
     return 0;
 }

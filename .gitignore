@@ -1,3 +1,6 @@
+schedrun
+schedprint
+pfm_info
 *.fcsched
 *.dot
 *.pdf
@@ -5,3 +8,4 @@
 *.png
 *.o
 __pycache__/
+.cache/

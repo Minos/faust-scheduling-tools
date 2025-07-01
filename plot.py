@@ -1,72 +1,164 @@
+from __future__ import annotations
+
+from typing import Optional, List
+from enum import StrEnum
+
 import os
-from typing import Optional
 
 import matplotlib.pyplot as plt
+from matplotlib.axes import Axes
 import numpy as np
 
-from build import split_prog_name
-import common
-import run
+from build import (FaustStrategy, CompilationStrategy, Scheduling, 
+                   FaustBenchmark, FaustBenchmarkResult)
+from perf import PerfEvent
 
 
-color_instr = 'xkcd:dark orange'
-color_uops_1 = 'xkcd:pale green'
-color_uops_2 = 'xkcd:light green'
-color_uops_3 = 'xkcd:green'
-color_uops_4 = 'xkcd:dark green'
-color_stalls_other = 'xkcd:light purple'
-color_stalls_memory = 'xkcd:purple'
-color_vec4 = '#AA0422'
-color_vec2 = '#C03D55'
-color_scalar = '#BFAB3C'
-color_l1_load_misses = 'xkcd:orange'
-color_l1_store_misses = 'xkcd:red'
+class PlotType(StrEnum):
+    STALLS = 'stalls'
+    UOPS = 'uops'
+    SUMMARY = 'summary'
+
+    @staticmethod
+    def parse(arg: str) -> Optional[PlotType]:
+        try:
+            return PlotType(arg)
+        except ValueError:
+            return None
+
+    def events(self) -> List[PerfEvent]:
+        if self == PlotType.STALLS:
+            return [PerfEvent.CYCLES,
+                    PerfEvent.INSTRUCTIONS,
+                    PerfEvent.STALLS_MEM,
+                    PerfEvent.STALLS_TOTAL]
+        elif self == PlotType.UOPS:
+            return [PerfEvent.UOPS_GE_1,
+                    PerfEvent.UOPS_GE_2,
+                    PerfEvent.UOPS_GE_3,
+                    PerfEvent.UOPS_GE_4]
+        elif self == PlotType.SUMMARY:
+            return [PerfEvent.STALLS_TOTAL,
+                    PerfEvent.STALLS_MEM,
+                    PerfEvent.UOPS_GE_1,
+                    PerfEvent.UOPS_GE_2,
+                    PerfEvent.UOPS_GE_3,
+                    PerfEvent.UOPS_GE_4,
+                    PerfEvent.FP_ARITH_SCALAR,
+                    PerfEvent.FP_ARITH_PACKED_2,
+                    PerfEvent.FP_ARITH_PACKED_4,
+                    PerfEvent.L1_DCACHE_LOADS,
+                    PerfEvent.L1_DCACHE_LOAD_MISSES,
+                    PerfEvent.L1_DCACHE_STORES,
+                    PerfEvent.L1_DCACHE_STORE_MISSES,
+                    PerfEvent.LLC_LOADS,
+                    PerfEvent.LLC_LOAD_MISSES,
+                    PerfEvent.LLC_STORES,
+                    PerfEvent.LLC_STORE_MISSES]
+        else:
+            return []
+
+    @staticmethod
+    def all(extended: bool = True) -> List[PlotType]:
+        return sorted([t for t in PlotType if extended or len(t.events()) <= 4])
 
 
-class Run:
-    strategy: str
-    compiler: str
-    arch: str
-    loops: int
-    events: dict[str, np.typing.NDArray]
-    times: Optional[np.typing.NDArray]
-
-    def __init__(self, strategy: str, compiler: str, arch: str):
-        self.strategy = strategy
-        self.compiler = compiler
-        self.arch = arch
-        self.loops = 0
-        self.events = {}
-        self.times = None
-
-    def characteristics(self) -> str:
-        return f"ss{self.strategy}_{self.compiler}_{self.arch}"
+def faust_strategy_label(strategy: FaustStrategy) -> str:
+    if strategy.scheduling == Scheduling.DEEP_FIRST:
+        return 'deep-first'
+    elif strategy.scheduling == Scheduling.BREADTH_FIRST:
+        return 'breadth-first'
+    elif strategy.scheduling == Scheduling.INTERLEAVED:
+        return 'interleaved'
+    elif strategy.scheduling == Scheduling.REVERSE_BREADTH_FIRST:
+        return 'reverse-breadth-first'
+    elif strategy.scheduling == Scheduling.LIST_SCHEDULING:
+        return 'list'
+    else:
+        return 'unknown'
 
 
-class Program:
-    name: str
-    runs: list[Run]
+def faust_strategy_label_short(strategy: FaustStrategy) -> str:
+    if strategy.scheduling == Scheduling.DEEP_FIRST:
+        return 'DF'
+    elif strategy.scheduling == Scheduling.BREADTH_FIRST:
+        return 'BF'
+    elif strategy.scheduling == Scheduling.INTERLEAVED:
+        return 'I'
+    elif strategy.scheduling == Scheduling.REVERSE_BREADTH_FIRST:
+        return 'RBF'
+    elif strategy.scheduling == Scheduling.LIST_SCHEDULING:
+        return 'L'
+    else:
+        return '??'
 
-    def __init__(self, name):
-        self.name = name
-        self.runs = []
+
+def compilation_strategy_label(strategy: CompilationStrategy) -> str:
+    return f'{strategy.compiler} {strategy.architecture}'
 
 
-def plot_stalls(run_result, ax):
+def line_color(event: PerfEvent) -> str:
+    if event == PerfEvent.INSTRUCTIONS:
+        return 'xkcd:dark orange'
+    elif event == PerfEvent.UOPS_GE_1:
+        return 'xkcd:pale green'
+    elif event == PerfEvent.UOPS_GE_2:
+        return 'xkcd:light green'
+    elif event == PerfEvent.UOPS_GE_3:
+        return 'xkcd:green'
+    elif event == PerfEvent.UOPS_GE_4:
+        return 'xkcd:dark green'
+    elif event == PerfEvent.STALLS_TOTAL:
+        return 'xkcd:light purple'
+    elif event == PerfEvent.STALLS_MEM:
+        return 'xkcd:purple'
+    elif event == PerfEvent.FP_ARITH_PACKED_4:
+        return '#AA0422'
+    elif event == PerfEvent.FP_ARITH_PACKED_2:
+        return '#C03D55'
+    elif event == PerfEvent.FP_ARITH_SCALAR:
+        return '#BFAB3C'
+    elif event == PerfEvent.L1_DCACHE_LOAD_MISSES:
+        return 'xkcd:orange'
+    elif event == PerfEvent.L1_DCACHE_STORE_MISSES:
+        return 'xkcd:red'
+    else:
+        return 'black'
+
+
+def setup_matplotlib(output):
+    style = './report.mplstyle'
+    if os.path.exists(style):
+        plt.style.use(style)
+    # When outputing to png format, we need a higher DPI.
+    if output:
+        plt.rcParams['figure.dpi'] = 512
+
+
+def plot_stalls(run_result: FaustBenchmarkResult, ax: Axes):
     x = np.arange(1, run_result.loops + 1)
     lw = 0.5
 
-    instr = run_result.events[common.instructions] / 4
-    st_m = run_result.events[common.stalls_mem]
-    st_t = run_result.events[common.stalls_total]
+    instructions = run_result.events[PerfEvent.INSTRUCTIONS] / 4
+    mem_stalls = run_result.events[PerfEvent.STALLS_MEM]
+    total_stalls = run_result.events[PerfEvent.STALLS_TOTAL]
 
-    ax.fill_between(x, instr + st_m, instr + st_t, 
-                    lw=lw, color=color_stalls_other, label="stalls(other)")
-    ax.fill_between(x, instr, instr + st_m, 
-                    lw=lw, color=color_stalls_memory, label="stalls(mem)")
-    ax.fill_between(x, 0, instr, lw=lw, color=color_instr, label="instr/4")
+    ax.fill_between(x, instructions + mem_stalls, instructions + total_stalls,
+                    lw=lw,
+                    color=line_color(PerfEvent.STALLS_TOTAL),
+                    label="stalls(other)")
 
-    ax.plot(x, run_result.events[common.cycles], lw=lw, label="cycles", color="black")
+    ax.fill_between(x, instructions, instructions + mem_stalls,
+                    lw=lw,
+                    color=line_color(PerfEvent.STALLS_MEM),
+                    label="stalls(mem)")
+
+    ax.fill_between(x, 0, instructions,
+                    lw=lw,
+                    color=line_color(PerfEvent.INSTRUCTIONS),
+                    label="instr/4")
+
+    ax.plot(x, run_result.events[PerfEvent.CYCLES], lw=lw, label="cycles", color="black")
 
     ax.set_xlim(xmin=1, xmax=len(x))
 
@@ -75,15 +167,25 @@ def plot_uops(run_result, ax):
     x = np.arange(1, run_result.loops + 1)
     lw = 0.5
 
-    uops_1 = run_result.events[common.uops_ge_1]
-    uops_2 = run_result.events[common.uops_ge_2]
-    uops_3 = run_result.events[common.uops_ge_3]
-    uops_4 = run_result.events[common.uops_ge_4]
+    ax.fill_between(x, 0, run_result.events[PerfEvent.UOPS_GE_1],
+                    lw=lw,
+                    color=line_color(PerfEvent.UOPS_GE_1),
+                    label="cycles with 1 uop")
 
-    ax.fill_between(x, 0, uops_1, lw=lw, label="cycles with 1 uop")
-    ax.fill_between(x, 0, uops_2, lw=lw, label="cycles with 2 uops")
-    ax.fill_between(x, 0, uops_3, lw=lw, label="cycles with 3 uops")
-    ax.fill_between(x, 0, uops_4, lw=lw, label="cycles with 4 uops")
+    ax.fill_between(x, 0, run_result.events[PerfEvent.UOPS_GE_2],
+                    lw=lw,
+                    color=line_color(PerfEvent.UOPS_GE_2),
+                    label="cycles with 2 uops")
+
+    ax.fill_between(x, 0, run_result.events[PerfEvent.UOPS_GE_3],
+                    lw=lw,
+                    color=line_color(PerfEvent.UOPS_GE_3),
+                    label="cycles with 3 uops")
+
+    ax.fill_between(x, 0, run_result.events[PerfEvent.UOPS_GE_4],
+                    lw=lw,
+                    color=line_color(PerfEvent.UOPS_GE_3),
+                    label="cycles with 4 uops")
 
     ax.set_xlim(xmin=1, xmax=len(x))
 
@@ -98,30 +200,27 @@ def plot_events(run_result, ax):
     ax.set_xlim(xmin=1, xmax=len(x))
 
 
-def plot_multiple_runs(
-    path, compilers, archs, *,
-    btype=None, output_file=None, events=[], nloops=1000,
-    plot_fn=plot_events, override=False
+def plot_benchmark_loops(
+        benchmark: FaustBenchmark,
+        *,
+        plot_type: Optional[PlotType] = None,
+        output_directory: Optional[str] = None
 ):
-    if output_file:
-        plt.rcParams['figure.dpi'] = 512
+    setup_matplotlib(output_directory)
 
-    directory, filename = os.path.split(path)
-    program_name, _ = os.path.splitext(filename)
+    results = benchmark.run()
 
-    results = run.run_strategies(
-        directory, program_name,
-        compilers=compilers,
-        archs=archs,
-        btype=btype,
-        events=events,
-        nloops=nloops,
-        override=override
-    )
+    print(f'PLOT   {benchmark.program.src}')
+
+    plot_fn = plot_events
+    if plot_type == PlotType.STALLS:
+        plot_fn = plot_stalls
+    elif plot_type == PlotType.UOPS:
+        plot_fn = plot_uops
 
     ymax = max([np.max(run.events[k]) for run in results for k in run.events.keys()]) * 1.1
 
-    nvariants = len(compilers) * len(archs)
+    nvariants = len(benchmark.compilation_strategies)
     if nvariants == 1:
         figsize = (6, 6)
     elif nvariants == 2:
@@ -131,9 +230,9 @@ def plot_multiple_runs(
 
     if nvariants == 1:
         ncols = 1
-        nrows = len(common.strategies)
+        nrows = len(benchmark.faust_strategies)
     else:
-        ncols = len(common.strategies)
+        ncols = len(benchmark.faust_strategies)
         nrows = nvariants
 
     fig, axes = plt.subplots(
@@ -145,29 +244,37 @@ def plot_multiple_runs(
         squeeze=False,
     )
 
-    for res, ax in zip(results, (axes if len(results) == 16 else axes).flatten()):
-        plot_fn(res, ax)
-        ax.set_title(f"{common.strategy_labels[res.run.strategy]}")
+    for result, ax in zip(results, (axes.T if nvariants >= 4 else axes).flatten()):
+        plot_fn(result, ax)
+        compilation_strategy = result.run.compilation_strategy
         ax.set_title(
-            f"{common.compiler_labels[res.run.compiler]} {common.arch_labels[res.run.arch]}, "
-            f"{common.strategy_labels_short[res.run.strategy]}"
+            f"{compilation_strategy.compiler} {compilation_strategy.architecture}, "
+            f"{faust_strategy_label_short(result.run.faust_strategy)}"
         )
         ax.set_ylim(ymin=0, ymax=ymax)
 
     handles, labels = axes[0, 0].get_legend_handles_labels()
     fig.legend(handles, labels, ncols=4, loc="lower center")
-    fig.suptitle(program_name)
+    fig.suptitle(benchmark.program.name)
 
     plt.subplots_adjust(hspace=0.5)
 
-    if output_file:
-        plt.savefig(output_file, bbox_inches="tight")
+    if output_directory:
+        os.makedirs(output_directory, mode=0o755, exist_ok=True)
+        filename = f'{benchmark.program.name}_{benchmark.bench_type.value}_{benchmark.loops}'
+        if plot_type is not None:
+            filename += f'_{plot_type.value}'
+        filename += f'.png'
+        plt.savefig(os.path.join(output_directory, filename), bbox_inches="tight")
     else:
         plt.show()
 
+    plt.close()
 
-def get_denoised_value(event: str, runs: list[run.RunResult]) -> np.typing.NDArray:
-    return np.asarray([np.quantile(r.events[event], 0.2) for r in runs])
+
+def get_denoised_value(event: PerfEvent, 
+                       results: List[FaustBenchmarkResult]) -> np.typing.NDArray:
+    return np.asarray([np.quantile(r.events[event], 0.2) for r in results])
 
 
 def plot_broken_bar(ax, y, height, sections: list[tuple[np.typing.NDArray, str, str]], *,
@@ -182,14 +289,19 @@ def plot_broken_bar(ax, y, height, sections: list[tuple[np.typing.NDArray, str, 
     ax.bar_label(rects, labels=[legend for _ in y], padding=4, fontsize=8)
 
 
-def plot_multiple_runs_summary(path, runs, *, output_file=None):
-    if output_file:
-        plt.rcParams['figure.dpi'] = 512
+def plot_benchmark_summary(
+        benchmark: FaustBenchmark, 
+        *,
+        output_directory: Optional[str]
+):
+    setup_matplotlib(output_directory)
 
-    _, program_name = split_prog_name(path)
+    results = benchmark.run()
+
+    print(f'PLOT   {benchmark.program.src}')
 
     nlines = 3
-    nticks = len(runs)
+    nticks = len(results)
     y = np.arange(nticks)
 
     fig, ax = plt.subplots()
@@ -197,54 +309,71 @@ def plot_multiple_runs_summary(path, runs, *, output_file=None):
     height = 1 / (nlines + 0.5)
     thickness = 0.8
 
-    uops_ge_4 = get_denoised_value(common.uops_ge_4, runs)
-    uops_ge_3 = get_denoised_value(common.uops_ge_3, runs)
-    uops_ge_2 = get_denoised_value(common.uops_ge_2, runs)
-    uops_ge_1 = get_denoised_value(common.uops_ge_1, runs)
+    uops_ge_4 = get_denoised_value(PerfEvent.UOPS_GE_4, results)
+    uops_ge_3 = get_denoised_value(PerfEvent.UOPS_GE_3, results)
+    uops_ge_2 = get_denoised_value(PerfEvent.UOPS_GE_2, results)
+    uops_ge_1 = get_denoised_value(PerfEvent.UOPS_GE_1, results)
+
     uops_eq_4 = uops_ge_4
     uops_eq_3 = uops_ge_3 - uops_ge_4
     uops_eq_2 = uops_ge_2 - uops_ge_3
     uops_eq_1 = uops_ge_1 - uops_ge_2
-    mem_stalls = get_denoised_value(common.stalls_mem, runs)
-    other_stalls = get_denoised_value(common.stalls_total, runs) - mem_stalls
+
+    mem_stalls = get_denoised_value(PerfEvent.STALLS_MEM, results)
+    other_stalls = get_denoised_value(PerfEvent.STALLS_TOTAL, results) - mem_stalls
 
     plot_broken_bar(ax, y, height * thickness, [
-        (uops_eq_4, 'cycles with 4 uops', color_uops_4),
-        (uops_eq_3, 'cycles with 3 uops', color_uops_3),
-        (uops_eq_2, 'cycles with 2 uops', color_uops_2),
-        (uops_eq_1, 'cycles with 1 uop', color_uops_1),
-        (mem_stalls, 'stalled cycles (memory)', color_stalls_memory),
-        (other_stalls, 'stalled cycles (other)', color_stalls_other),
+        (uops_eq_4, 'cycles with 4 uops', line_color(PerfEvent.UOPS_GE_4)),
+        (uops_eq_3, 'cycles with 3 uops', line_color(PerfEvent.UOPS_GE_3)),
+        (uops_eq_2, 'cycles with 2 uops', line_color(PerfEvent.UOPS_GE_2)),
+        (uops_eq_1, 'cycles with 1 uop', line_color(PerfEvent.UOPS_GE_1)),
+        (mem_stalls, 'stalled cycles (memory)', line_color(PerfEvent.STALLS_MEM)),
+        (other_stalls, 'stalled cycles (other)', line_color(PerfEvent.STALLS_TOTAL)),
     ], legend='cycles')
 
     plot_broken_bar(ax, y + height, height * thickness, [
-        (4 * get_denoised_value(common.fp_arith_packed_4, runs), '4-packed fp ops', color_vec4),
-        (2 * get_denoised_value(common.fp_arith_packed_2, runs), '2-packed fp ops', color_vec2),
-        (get_denoised_value(common.fp_arith_scalar, runs), 'scalar fp ops', color_scalar),
+        (4 * get_denoised_value(PerfEvent.FP_ARITH_PACKED_4, results), 
+         '4-packed fp ops', 
+         line_color(PerfEvent.FP_ARITH_PACKED_4)),
+        (2 * get_denoised_value(PerfEvent.FP_ARITH_PACKED_2, results), 
+         '2-packed fp ops', 
+         line_color(PerfEvent.FP_ARITH_PACKED_2)),
+        (get_denoised_value(PerfEvent.FP_ARITH_SCALAR, results), 
+         'scalar fp ops', 
+         line_color(PerfEvent.FP_ARITH_SCALAR)),
     ], legend='vectorization')
 
-    l1_dcache_store_misses = get_denoised_value(common.l1_dcache_store_misses, runs)
-    l1_dcache_load_misses = get_denoised_value(common.l1_dcache_load_misses, runs)
-    l1_dcache_stores = get_denoised_value(common.l1_dcache_stores, runs)
-    l1_dcache_loads = get_denoised_value(common.l1_dcache_loads, runs)
+    l1_dcache_store_misses = get_denoised_value(PerfEvent.L1_DCACHE_STORE_MISSES, results)
+    l1_dcache_load_misses = get_denoised_value(PerfEvent.L1_DCACHE_LOAD_MISSES, results)
+    l1_dcache_stores = get_denoised_value(PerfEvent.L1_DCACHE_STORES, results)
+    l1_dcache_loads = get_denoised_value(PerfEvent.L1_DCACHE_LOADS, results)
     l1_total = l1_dcache_store_misses + l1_dcache_load_misses + l1_dcache_stores + l1_dcache_loads
 
     plot_broken_bar(ax, y + height * 2, height * thickness, [
-        (l1_dcache_store_misses, 'L1 dcache store misses', color_l1_store_misses),
-        (l1_dcache_load_misses, 'L1 dcache load misses', color_l1_load_misses),
+        (l1_dcache_store_misses, 'L1 dcache store misses', 
+         line_color(PerfEvent.L1_DCACHE_STORE_MISSES)),
+        (l1_dcache_load_misses, 'L1 dcache load misses', 
+         line_color(PerfEvent.L1_DCACHE_LOAD_MISSES)),
     ], total=l1_total, legend='memory access')
 
     ax.invert_yaxis()
-    yticks = [f'{common.strategy_labels_short[r.run.strategy]}' for r in runs]
+    yticks = [f'{compilation_strategy_label(r.run.compilation_strategy)}, '
+              f'{faust_strategy_label_short(r.run.faust_strategy)}' 
+              for r in results]
     ax.set_yticks(y + height * (nlines / 2 - 0.5), yticks)
     ax.margins(x=0.2)
 
     fig.legend(ncols=1, bbox_to_anchor=(1.27, 0.8))
-    fig.suptitle(program_name)
+    fig.suptitle(benchmark.program.name)
 
     plt.subplots_adjust(hspace=0.5)
 
-    if output_file:
-        plt.savefig(output_file, bbox_inches="tight")
+    if output_directory:
+        os.makedirs(output_directory, mode=0o755, exist_ok=True)
+        filename = f'{benchmark.program.name}_{benchmark.bench_type.value}_{benchmark.loops}' \
+                   f'_summary.png'
+        plt.savefig(os.path.join(output_directory, filename), bbox_inches="tight")
     else:
         plt.show()
+
+    plt.close()
