@@ -17,13 +17,10 @@ from perf import PerfEvent
 
 
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
-BUILD_DIR = os.path.join(ROOT_DIR, 'build')
 FAUST_ARCH = os.path.join(ROOT_DIR, 'arch/mydsp.cpp')
 
 BENCH_BINARY = 'schedrun'
 TEST_BINARY = 'schedprint'
-
-RUN_OUTPUT_TIME_KEY = 'time(ns)'
 
 
 class Scheduling(StrEnum):
@@ -71,6 +68,7 @@ class Architecture(StrEnum):
 class BenchType(StrEnum):
     BASIC = 'basic'
     ALSA = 'alsa'
+    JACK = 'jack'
 
     @staticmethod
     def default() -> BenchType:
@@ -451,6 +449,8 @@ class FaustBenchmarkingPlan:
                             continue
                         b.faust_strategies = [s for s in b.faust_strategies 
                                               if s != task.faust_strategy]
+
+        benchmarks = [b for b in benchmarks if len(b.faust_strategies) > 0]
 
         return benchmarks
 

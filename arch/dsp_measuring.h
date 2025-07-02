@@ -36,7 +36,6 @@ class self_measuring_dsp : public decorator_dsp {
    public:
     explicit self_measuring_dsp(dsp* dsp, int nb_iterations = 1000);
     explicit self_measuring_dsp(const std::string& path, int nb_iterations = 1000);
-    ~self_measuring_dsp() override;
 
     void compute(int count, float** inputs, float** outputs) override;
 

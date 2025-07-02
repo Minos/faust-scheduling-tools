@@ -6,7 +6,8 @@
 #include "dsp_measuring.h"
 
 class alsa_dsp_runner : public dsp_runner {
-    alsaaudio audio;
+    int sample_rate;
+    int buffer_size;
 
    public:
     alsa_dsp_runner(int sample_rate, int buffer_size);

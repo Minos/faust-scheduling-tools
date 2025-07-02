@@ -19,23 +19,18 @@ int main(int argc, char* argv[])
         exit(1);
     }
 
-    void *handle;
-    dsp* d = load_shared_dsp(argv[1], &handle);
+    foreign_dsp d(argv[1]);
 
-    if (d == nullptr) {
-        std::cerr << "Failed to create DSP object\n";
-        return 1;
-    }
-    d->init(44100);
+    d.init(44100);
 
     UI ui;
-    d->buildUserInterface(&ui);
+    d.buildUserInterface(&ui);
 
     srand(0xABCD);
 
     // Create the input buffers
     FAUSTFLOAT* inputs[256];
-    for (int i = 0; i < d->getNumInputs(); i++) {
+    for (int i = 0; i < d.getNumInputs(); i++) {
         inputs[i] = new FAUSTFLOAT[NBSAMPLES];
         for (int j = 0; j < NBSAMPLES; j++) {
             inputs[i][j] = -1 + 2 * (rand() / (float) RAND_MAX);
@@ -44,23 +39,29 @@ int main(int argc, char* argv[])
 
     // Create the output buffers
     FAUSTFLOAT* outputs[256];
-    for (int i = 0; i < d->getNumOutputs(); i++) {
+    for (int i = 0; i < d.getNumOutputs(); i++) {
         outputs[i] = new FAUSTFLOAT[NBSAMPLES];
     }
 
     // Compile the Impulse Response
-    d->compute(NBSAMPLES, inputs, outputs);
+    d.compute(NBSAMPLES, inputs, outputs);
 
     // Print the NBSAMPLES of the impulse response
     for (int i = 0; i < NBSAMPLES; i++) {
         std::cout << outputs[0][i];
-        for (int j = 1; j < d->getNumOutputs(); j++) {
+        for (int j = 1; j < d.getNumOutputs(); j++) {
             std::cout << ";" << outputs[j][i];
         }
         std::cout << std::endl;
     }
 
-    unload_shared_dsp(d, handle);
+    for (int i = 0; i < d.getNumOutputs(); i++) {
+        delete[] outputs[i];
+    }
+
+    for (int i = 0; i < d.getNumInputs(); i++) {
+        delete[] inputs[i];
+    }
 
     return 0;
 }

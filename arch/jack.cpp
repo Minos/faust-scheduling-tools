@@ -1,23 +1,21 @@
 #include <iostream>
 
-#include "alsa.h"
+#include "jack.h"
 
-alsa_dsp_runner::alsa_dsp_runner(int sample_rate, int buffer_size)
-    : sample_rate(sample_rate), buffer_size(buffer_size)
-{
-}
+jack_dsp_runner::jack_dsp_runner() = default;
 
-void alsa_dsp_runner::run(self_measuring_dsp& d)
+void jack_dsp_runner::run(self_measuring_dsp& d)
 {
-    alsaaudio audio(sample_rate, buffer_size);
+    jackaudio audio;
 
     if (!audio.init("mydsp", &d)) {
         std::cerr << "Unable to init audio" << std::endl;
         exit(1);
     }
-
+    
     if (!audio.start()) {
         std::cerr << "Unable to start audio" << std::endl;
+        exit(1);
     }
 
     d.wait();

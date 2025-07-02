@@ -1,7 +1,7 @@
 CC := clang
 CXX := clang++
 
-CFLAGS := -g -march=native -O3 -ffast-math --std=c++20
+CFLAGS := -march=native -O3 -ffast-math --std=c++20
 LDFLAGS := -lpfm -ldl
 
 # FIXME: This condition is always true.
@@ -11,9 +11,9 @@ endif
 
 all: schedrun schedprint pfm_info
 
-schedrun: arch/schedrun.o arch/dsp_measuring.o arch/pfm_utils.o arch/alsa.o arch/basic.o arch/load.o
+schedrun: arch/schedrun.o arch/dsp_measuring.o arch/pfm_utils.o arch/alsa.o arch/basic.o arch/load.o arch/jack.o
 	@echo "LD     $@"
-	@$(CXX) -ldl -lpfm -lasound $^ -o $@
+	@$(CXX) -ldl -lpfm -lasound -ljack $^ -o $@
 
 schedprint: arch/schedprint.o arch/load.o
 	@echo "LD     $@"

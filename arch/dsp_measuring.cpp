@@ -93,19 +93,8 @@ self_measuring_dsp::self_measuring_dsp(dsp* dsp, int nb_iterations)
 }
 
 self_measuring_dsp::self_measuring_dsp(const std::string& path, int nb_iterations)
-    : nb_iterations(nb_iterations), durations(nb_iterations)
+    : decorator_dsp(new foreign_dsp(path)), nb_iterations(nb_iterations), durations(nb_iterations)
 {
-    fDSP = load_shared_dsp(path, &handle);
-}
-
-self_measuring_dsp::~self_measuring_dsp()
-{
-    if (handle != nullptr) {
-        // If we loaded the DSP from a library, we need to free it before the library is unloaded
-        // and set it to nullptr to prevent a double-free from the base class
-        unload_shared_dsp(fDSP, handle);
-        fDSP = nullptr;
-    }
 }
 
 void self_measuring_dsp::observe_event(const std::string& event_name)

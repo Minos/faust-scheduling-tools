@@ -7,6 +7,7 @@
 #include "alsa.h"
 #include "basic.h"
 #include "dsp_measuring.h"
+#include "jack.h"
 #include "mydsp.h"
 #include "pfm_utils.h"
 
@@ -17,6 +18,7 @@
 enum run_type {
     BASIC,
     ALSA,
+    JACK,
 };
 
 static void print_usage(int argc, char* argv[])
@@ -43,18 +45,21 @@ int main(int argc, char* argv[])
     std::unique_ptr<dsp_runner> runner = nullptr;
 
     static struct option long_options[] = {
-        {"alsa", no_argument, 0, 0},
         {"basic", no_argument, 0, 0},
+        {"alsa", no_argument, 0, 0},
+        {"jack", no_argument, 0, 0},
     };
 
     while ((opt = getopt_long(argc, argv, "ro:e:n:b:", long_options, &option_index)) != -1) {
         switch (opt) {
             case 0:
                 optname = long_options[option_index].name;
-                if (!strcmp(optname, "alsa")) {
-                    rtype = ALSA;
-                } else if (!strcmp(optname, "basic")) {
+                if (!strcmp(optname, "basic")) {
                     rtype = BASIC;
+                } else if (!strcmp(optname, "alsa")) {
+                    rtype = ALSA;
+                } else if (!strcmp(optname, "jack")) {
+                    rtype = JACK;
                 }
                 break;
             case 'r':
@@ -94,6 +99,8 @@ int main(int argc, char* argv[])
         case ALSA:
             runner = std::make_unique<alsa_dsp_runner>(SAMPLE_RATE, buffer_size);
             break;
+        case JACK:
+            runner = std::make_unique<jack_dsp_runner>();
     }
 
     int nprograms = argc - optind;
@@ -115,6 +122,8 @@ int main(int argc, char* argv[])
         UI ui;
         d.buildUserInterface(&ui);
         d.observe_events(events);
+
+        d.warmup(buffer_size, nloops / 10);
 
         runner->run(d);
 

@@ -139,6 +139,10 @@ def add_run_arguments(parser, extended_event_list):
         help='Run tests with the ALSA backend',
     )
     parser.add_argument(
+        '--jack', action='store_true',
+        help='Run tests with the JACK backend',
+    )
+    parser.add_argument(
         '--basic', action='store_true',
         help='Run tests with the simple backend (default)'
     )
@@ -181,7 +185,7 @@ def summary_command(args):
 
 
 def find_dsp(paths: List[str]) -> List[str]:
-    def rec_find_dsp(path: str) -> list[str]:
+    def rec_find_dsp(path: str) -> List[str]:
         if path.endswith(".dsp"):
             return [path]
         if os.path.isdir(path):
@@ -231,7 +235,9 @@ def create_benchmarking_plan(args, *, build_only=False) -> FaustBenchmarkingPlan
     if build_only:
         return plan
 
-    if args.alsa:
+    if args.jack:
+        plan.bench_type = BenchType.JACK
+    elif args.alsa:
         plan.bench_type = BenchType.ALSA
     elif args.basic:
         plan.bench_type = BenchType.BASIC
