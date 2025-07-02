@@ -1,5 +1,5 @@
-#ifndef __DSP_MEASURING_H__
-#define __DSP_MEASURING_H__
+#ifndef __FCSCHEDTOOL_DSP_MEASURING_H__
+#define __FCSCHEDTOOL_DSP_MEASURING_H__
 
 #include <array>
 #include <condition_variable>
@@ -30,8 +30,6 @@ class self_measuring_dsp : public decorator_dsp {
 
     std::mutex              end_mutex;
     std::condition_variable end_cv;
-
-    void* handle = nullptr;
 
    public:
     explicit self_measuring_dsp(dsp* dsp, int nb_iterations = 1000);

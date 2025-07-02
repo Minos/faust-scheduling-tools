@@ -1,4 +1,8 @@
-#include "mydsp.h"
+#include <algorithm>
+#include <cmath>
+#include <cstdint>
+
+#include "ui.h"
 
 #ifndef FAUSTFLOAT
 #define FAUSTFLOAT float

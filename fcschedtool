@@ -9,6 +9,7 @@ from build import (FaustProgram, FaustBenchmarkingPlan, FaustTestingPlan,
                    Compiler, Architecture, BenchType)
 from test import run_tests
 from plot import plot_benchmark_loops, plot_benchmark_summary, PlotType
+from perf import PerfEvent
 
 
 class ArgError(BaseException):
@@ -204,14 +205,14 @@ def build_list_from_args(provided):
     return sum([arg.split(',') for arg in provided], [])
 
 
-def find_events(args):
+def find_events(args) -> List[PerfEvent]:
     if args.preset is not None:
         try:
             return PlotType(args.preset).events()
         except ValueError:
             raise ArgError(f'Preset {args.preset} not found.')
-    events = sum([arg.split(',') for arg in args.events], [])
-    return events
+    names = sum([arg.split(',') for arg in args.events], [])
+    return [PerfEvent(name) for name in names]
 
 
 def create_benchmarking_plan(args, *, build_only=False) -> FaustBenchmarkingPlan:

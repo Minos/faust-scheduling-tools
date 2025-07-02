@@ -283,7 +283,7 @@ class FaustBenchmarkRun:
                '-n', str(self.loops)]
 
         if len(self.events) > 0:
-            cmd += ['-e', ','.join(self.events)]
+            cmd += ['-e', ','.join(map(lambda e: e.value, self.events))]
 
         proc = subprocess.run(cmd, capture_output=True, text=True)
 

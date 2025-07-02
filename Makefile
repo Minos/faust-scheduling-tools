@@ -1,7 +1,7 @@
 CC := clang
 CXX := clang++
 
-CFLAGS := -march=native -O3 -ffast-math --std=c++20
+CFLAGS := -march=native -O3 -ffast-math --std=c++20 -Wall -Wno-unused-function
 LDFLAGS := -lpfm -ldl
 
 # FIXME: This condition is always true.

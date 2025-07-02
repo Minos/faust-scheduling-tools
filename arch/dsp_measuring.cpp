@@ -4,8 +4,6 @@
 #include <functional>
 #include <iostream>
 
-#include <string.h>
-
 #include <perfmon/pfmlib_perf_event.h>
 
 #include "load.h"
@@ -20,9 +18,9 @@ struct event_stat {
     long long max;
 };
 
-struct event_stat event_statistics(const std::vector<long long>& array)
+event_stat event_statistics(const std::vector<long long>& array)
 {
-    struct event_stat s;
+    event_stat s;
 
     s.min = array[0];
     s.max = array[0];
@@ -49,7 +47,7 @@ struct event_stat event_statistics(const std::vector<long long>& array)
     return s;
 }
 
-std::string format_hr_nanoseconds(int n)
+std::string format_hr_nanoseconds(long long n)
 {
     if (n / 1000 == 0) {
         return std::format("{}", n);
@@ -62,7 +60,7 @@ std::string format_hr_nanoseconds(int n)
     }
 }
 
-std::string format_hr(int n)
+std::string format_hr(long long n)
 {
     if (n / 1000 == 0) {
         return std::format("{:8d}", n);
@@ -76,7 +74,8 @@ std::string format_hr(int n)
 }
 
 void print_statistics(std::ostream& output, const std::vector<long long>& array,
-                      const std::string& name, std::function<std::string(int)> fmt = format_hr)
+                      const std::string& name,
+                      const std::function<std::string(long long)>& fmt = format_hr)
 {
     struct event_stat stat = event_statistics(array);
     output << "\033[0m" << std::format("{:<32} ", name) << "\033[0m"

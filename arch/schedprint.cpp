@@ -1,7 +1,7 @@
 #include <iostream>
 
 #include "load.h"
-#include "mydsp.h"
+#include "ui.h"
 
 #define NBSAMPLES 44100
 #define IMPULSE_SIZE 441
@@ -29,18 +29,18 @@ int main(int argc, char* argv[])
     srand(0xABCD);
 
     // Create the input buffers
-    FAUSTFLOAT* inputs[256];
+    float* inputs[256];
     for (int i = 0; i < d.getNumInputs(); i++) {
-        inputs[i] = new FAUSTFLOAT[NBSAMPLES];
+        inputs[i] = new float[NBSAMPLES];
         for (int j = 0; j < NBSAMPLES; j++) {
-            inputs[i][j] = -1 + 2 * (rand() / (float) RAND_MAX);
+            inputs[i][j] = -1 + 2 * (rand() / (float)RAND_MAX);
         }
     }
 
     // Create the output buffers
-    FAUSTFLOAT* outputs[256];
+    float* outputs[256];
     for (int i = 0; i < d.getNumOutputs(); i++) {
-        outputs[i] = new FAUSTFLOAT[NBSAMPLES];
+        outputs[i] = new float[NBSAMPLES];
     }
 
     // Compile the Impulse Response

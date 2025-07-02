@@ -28,33 +28,33 @@ class PlotType(StrEnum):
 
     def events(self) -> List[PerfEvent]:
         if self == PlotType.STALLS:
-            return [PerfEvent.CYCLES,
-                    PerfEvent.INSTRUCTIONS,
-                    PerfEvent.STALLS_MEM,
-                    PerfEvent.STALLS_TOTAL]
+            return [PerfEvent.cycles(),
+                    PerfEvent.instructions(),
+                    PerfEvent.stalls_mem(),
+                    PerfEvent.stalls_total()]
         elif self == PlotType.UOPS:
-            return [PerfEvent.UOPS_GE_1,
-                    PerfEvent.UOPS_GE_2,
-                    PerfEvent.UOPS_GE_3,
-                    PerfEvent.UOPS_GE_4]
+            return [PerfEvent.uops_ge_1(),
+                    PerfEvent.uops_ge_2(),
+                    PerfEvent.uops_ge_3(),
+                    PerfEvent.uops_ge_4()]
         elif self == PlotType.SUMMARY:
-            return [PerfEvent.STALLS_TOTAL,
-                    PerfEvent.STALLS_MEM,
-                    PerfEvent.UOPS_GE_1,
-                    PerfEvent.UOPS_GE_2,
-                    PerfEvent.UOPS_GE_3,
-                    PerfEvent.UOPS_GE_4,
-                    PerfEvent.FP_ARITH_SCALAR,
-                    PerfEvent.FP_ARITH_PACKED_2,
-                    PerfEvent.FP_ARITH_PACKED_4,
-                    PerfEvent.L1_DCACHE_LOADS,
-                    PerfEvent.L1_DCACHE_LOAD_MISSES,
-                    PerfEvent.L1_DCACHE_STORES,
-                    PerfEvent.L1_DCACHE_STORE_MISSES,
-                    PerfEvent.LLC_LOADS,
-                    PerfEvent.LLC_LOAD_MISSES,
-                    PerfEvent.LLC_STORES,
-                    PerfEvent.LLC_STORE_MISSES]
+            return [PerfEvent.stalls_total(),
+                    PerfEvent.stalls_mem(),
+                    PerfEvent.uops_ge_1(),
+                    PerfEvent.uops_ge_2(),
+                    PerfEvent.uops_ge_3(),
+                    PerfEvent.uops_ge_4(),
+                    PerfEvent.fp_arith_scalar(),
+                    PerfEvent.fp_arith_packed_2(),
+                    PerfEvent.fp_arith_packed_4(),
+                    PerfEvent.l1_dcache_loads(),
+                    PerfEvent.l1_dcache_load_misses(),
+                    PerfEvent.l1_dcache_stores(),
+                    PerfEvent.l1_dcache_store_misses(),
+                    PerfEvent.llc_loads(),
+                    PerfEvent.llc_load_misses(),
+                    PerfEvent.llc_stores(),
+                    PerfEvent.llc_store_misses()]
         else:
             return []
 
@@ -98,29 +98,29 @@ def compilation_strategy_label(strategy: CompilationStrategy) -> str:
 
 
 def line_color(event: PerfEvent) -> str:
-    if event == PerfEvent.INSTRUCTIONS:
+    if event == PerfEvent.instructions():
         return 'xkcd:dark orange'
-    elif event == PerfEvent.UOPS_GE_1:
+    elif event == PerfEvent.uops_ge_1():
         return 'xkcd:pale green'
-    elif event == PerfEvent.UOPS_GE_2:
+    elif event == PerfEvent.uops_ge_2():
         return 'xkcd:light green'
-    elif event == PerfEvent.UOPS_GE_3:
+    elif event == PerfEvent.uops_ge_3():
         return 'xkcd:green'
-    elif event == PerfEvent.UOPS_GE_4:
+    elif event == PerfEvent.uops_ge_4():
         return 'xkcd:dark green'
-    elif event == PerfEvent.STALLS_TOTAL:
+    elif event == PerfEvent.stalls_total():
         return 'xkcd:light purple'
-    elif event == PerfEvent.STALLS_MEM:
+    elif event == PerfEvent.stalls_mem():
         return 'xkcd:purple'
-    elif event == PerfEvent.FP_ARITH_PACKED_4:
+    elif event == PerfEvent.fp_arith_packed_4():
         return '#AA0422'
-    elif event == PerfEvent.FP_ARITH_PACKED_2:
+    elif event == PerfEvent.fp_arith_packed_2():
         return '#C03D55'
-    elif event == PerfEvent.FP_ARITH_SCALAR:
+    elif event == PerfEvent.fp_arith_scalar():
         return '#BFAB3C'
-    elif event == PerfEvent.L1_DCACHE_LOAD_MISSES:
+    elif event == PerfEvent.l1_dcache_load_misses():
         return 'xkcd:orange'
-    elif event == PerfEvent.L1_DCACHE_STORE_MISSES:
+    elif event == PerfEvent.l1_dcache_store_misses():
         return 'xkcd:red'
     else:
         return 'black'
@@ -139,26 +139,26 @@ def plot_stalls(run_result: FaustBenchmarkResult, ax: Axes):
     x = np.arange(1, run_result.loops + 1)
     lw = 0.5
 
-    instructions = run_result.events[PerfEvent.INSTRUCTIONS] / 4
-    mem_stalls = run_result.events[PerfEvent.STALLS_MEM]
-    total_stalls = run_result.events[PerfEvent.STALLS_TOTAL]
+    instructions = run_result.events[PerfEvent.instructions()] / 4
+    mem_stalls = run_result.events[PerfEvent.stalls_mem()]
+    total_stalls = run_result.events[PerfEvent.stalls_total()]
 
     ax.fill_between(x, instructions + mem_stalls, instructions + total_stalls,
                     lw=lw,
-                    color=line_color(PerfEvent.STALLS_TOTAL),
+                    color=line_color(PerfEvent.stalls_total()),
                     label="stalls(other)")
 
     ax.fill_between(x, instructions, instructions + mem_stalls,
                     lw=lw,
-                    color=line_color(PerfEvent.STALLS_MEM),
+                    color=line_color(PerfEvent.stalls_mem()),
                     label="stalls(mem)")
 
     ax.fill_between(x, 0, instructions,
                     lw=lw,
-                    color=line_color(PerfEvent.INSTRUCTIONS),
+                    color=line_color(PerfEvent.instructions()),
                     label="instr/4")
 
-    ax.plot(x, run_result.events[PerfEvent.CYCLES], lw=lw, label="cycles", color="black")
+    ax.plot(x, run_result.events[PerfEvent.cycles()], lw=lw, label="cycles", color="black")
 
     ax.set_xlim(xmin=1, xmax=len(x))
 
@@ -167,24 +167,24 @@ def plot_uops(run_result, ax):
     x = np.arange(1, run_result.loops + 1)
     lw = 0.5
 
-    ax.fill_between(x, 0, run_result.events[PerfEvent.UOPS_GE_1],
+    ax.fill_between(x, 0, run_result.events[PerfEvent.uops_ge_1()],
                     lw=lw,
-                    color=line_color(PerfEvent.UOPS_GE_1),
+                    color=line_color(PerfEvent.uops_ge_1()),
                     label="cycles with 1 uop")
 
-    ax.fill_between(x, 0, run_result.events[PerfEvent.UOPS_GE_2],
+    ax.fill_between(x, 0, run_result.events[PerfEvent.uops_ge_2()],
                     lw=lw,
-                    color=line_color(PerfEvent.UOPS_GE_2),
+                    color=line_color(PerfEvent.uops_ge_2()),
                     label="cycles with 2 uops")
 
-    ax.fill_between(x, 0, run_result.events[PerfEvent.UOPS_GE_3],
+    ax.fill_between(x, 0, run_result.events[PerfEvent.uops_ge_3()],
                     lw=lw,
-                    color=line_color(PerfEvent.UOPS_GE_3),
+                    color=line_color(PerfEvent.uops_ge_3()),
                     label="cycles with 3 uops")
 
-    ax.fill_between(x, 0, run_result.events[PerfEvent.UOPS_GE_4],
+    ax.fill_between(x, 0, run_result.events[PerfEvent.uops_ge_4()],
                     lw=lw,
-                    color=line_color(PerfEvent.UOPS_GE_3),
+                    color=line_color(PerfEvent.uops_ge_3()),
                     label="cycles with 4 uops")
 
     ax.set_xlim(xmin=1, xmax=len(x))
@@ -309,51 +309,51 @@ def plot_benchmark_summary(
     height = 1 / (nlines + 0.5)
     thickness = 0.8
 
-    uops_ge_4 = get_denoised_value(PerfEvent.UOPS_GE_4, results)
-    uops_ge_3 = get_denoised_value(PerfEvent.UOPS_GE_3, results)
-    uops_ge_2 = get_denoised_value(PerfEvent.UOPS_GE_2, results)
-    uops_ge_1 = get_denoised_value(PerfEvent.UOPS_GE_1, results)
+    uops_ge_4 = get_denoised_value(PerfEvent.uops_ge_4(), results)
+    uops_ge_3 = get_denoised_value(PerfEvent.uops_ge_3(), results)
+    uops_ge_2 = get_denoised_value(PerfEvent.uops_ge_2(), results)
+    uops_ge_1 = get_denoised_value(PerfEvent.uops_ge_1(), results)
 
     uops_eq_4 = uops_ge_4
     uops_eq_3 = uops_ge_3 - uops_ge_4
     uops_eq_2 = uops_ge_2 - uops_ge_3
     uops_eq_1 = uops_ge_1 - uops_ge_2
 
-    mem_stalls = get_denoised_value(PerfEvent.STALLS_MEM, results)
-    other_stalls = get_denoised_value(PerfEvent.STALLS_TOTAL, results) - mem_stalls
+    mem_stalls = get_denoised_value(PerfEvent.stalls_mem(), results)
+    other_stalls = get_denoised_value(PerfEvent.stalls_total(), results) - mem_stalls
 
     plot_broken_bar(ax, y, height * thickness, [
-        (uops_eq_4, 'cycles with 4 uops', line_color(PerfEvent.UOPS_GE_4)),
-        (uops_eq_3, 'cycles with 3 uops', line_color(PerfEvent.UOPS_GE_3)),
-        (uops_eq_2, 'cycles with 2 uops', line_color(PerfEvent.UOPS_GE_2)),
-        (uops_eq_1, 'cycles with 1 uop', line_color(PerfEvent.UOPS_GE_1)),
-        (mem_stalls, 'stalled cycles (memory)', line_color(PerfEvent.STALLS_MEM)),
-        (other_stalls, 'stalled cycles (other)', line_color(PerfEvent.STALLS_TOTAL)),
+        (uops_eq_4, 'cycles with 4 uops', line_color(PerfEvent.uops_ge_4())),
+        (uops_eq_3, 'cycles with 3 uops', line_color(PerfEvent.uops_ge_3())),
+        (uops_eq_2, 'cycles with 2 uops', line_color(PerfEvent.uops_ge_2())),
+        (uops_eq_1, 'cycles with 1 uop', line_color(PerfEvent.uops_ge_1())),
+        (mem_stalls, 'stalled cycles (memory)', line_color(PerfEvent.stalls_mem())),
+        (other_stalls, 'stalled cycles (other)', line_color(PerfEvent.stalls_total())),
     ], legend='cycles')
 
     plot_broken_bar(ax, y + height, height * thickness, [
-        (4 * get_denoised_value(PerfEvent.FP_ARITH_PACKED_4, results), 
+        (4 * get_denoised_value(PerfEvent.fp_arith_packed_4(), results), 
          '4-packed fp ops', 
-         line_color(PerfEvent.FP_ARITH_PACKED_4)),
-        (2 * get_denoised_value(PerfEvent.FP_ARITH_PACKED_2, results), 
+         line_color(PerfEvent.fp_arith_packed_4())),
+        (2 * get_denoised_value(PerfEvent.fp_arith_packed_2(), results), 
          '2-packed fp ops', 
-         line_color(PerfEvent.FP_ARITH_PACKED_2)),
-        (get_denoised_value(PerfEvent.FP_ARITH_SCALAR, results), 
+         line_color(PerfEvent.fp_arith_packed_2())),
+        (get_denoised_value(PerfEvent.fp_arith_scalar(), results), 
          'scalar fp ops', 
-         line_color(PerfEvent.FP_ARITH_SCALAR)),
+         line_color(PerfEvent.fp_arith_scalar())),
     ], legend='vectorization')
 
-    l1_dcache_store_misses = get_denoised_value(PerfEvent.L1_DCACHE_STORE_MISSES, results)
-    l1_dcache_load_misses = get_denoised_value(PerfEvent.L1_DCACHE_LOAD_MISSES, results)
-    l1_dcache_stores = get_denoised_value(PerfEvent.L1_DCACHE_STORES, results)
-    l1_dcache_loads = get_denoised_value(PerfEvent.L1_DCACHE_LOADS, results)
+    l1_dcache_store_misses = get_denoised_value(PerfEvent.l1_dcache_store_misses(), results)
+    l1_dcache_load_misses = get_denoised_value(PerfEvent.l1_dcache_load_misses(), results)
+    l1_dcache_stores = get_denoised_value(PerfEvent.l1_dcache_stores(), results)
+    l1_dcache_loads = get_denoised_value(PerfEvent.l1_dcache_loads(), results)
     l1_total = l1_dcache_store_misses + l1_dcache_load_misses + l1_dcache_stores + l1_dcache_loads
 
     plot_broken_bar(ax, y + height * 2, height * thickness, [
         (l1_dcache_store_misses, 'L1 dcache store misses', 
-         line_color(PerfEvent.L1_DCACHE_STORE_MISSES)),
+         line_color(PerfEvent.l1_dcache_store_misses())),
         (l1_dcache_load_misses, 'L1 dcache load misses', 
-         line_color(PerfEvent.L1_DCACHE_LOAD_MISSES)),
+         line_color(PerfEvent.l1_dcache_load_misses())),
     ], total=l1_total, legend='memory access')
 
     ax.invert_yaxis()

@@ -1,5 +1,5 @@
-#ifndef __PFM_UTILS_H__
-#define __PFM_UTILS_H__
+#ifndef __FCSCHEDTOOL_PFM_UTILS_H__
+#define __FCSCHEDTOOL_PFM_UTILS_H__
 
 #include <string>
 #include <vector>

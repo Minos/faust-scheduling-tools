@@ -8,8 +8,8 @@
 #include "basic.h"
 #include "dsp_measuring.h"
 #include "jack.h"
-#include "mydsp.h"
 #include "pfm_utils.h"
+#include "ui.h"
 
 #define SAMPLE_RATE 44100
 #define NBSAMPLES 256
