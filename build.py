@@ -600,7 +600,7 @@ class FaustTask(Task):
         super(FaustTask, self).__init__([program.src], program.cpp_path(strategy))
 
     def extra_dependencies(self):
-        return [FAUST_ARCH, faust_executable()]
+        return [FAUST_ARCH]
 
     def command(self):
         return [faust_executable(),
