@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from typing import Optional, List
+from collections import defaultdict
 from enum import StrEnum
+from typing import Optional, List, Dict
 
 import os
 
@@ -66,31 +67,37 @@ class PlotType(StrEnum):
 def faust_strategy_label(strategy: FaustStrategy) -> str:
     if strategy.scheduling == Scheduling.DEEP_FIRST:
         return 'deep-first'
-    elif strategy.scheduling == Scheduling.BREADTH_FIRST:
-        return 'breadth-first'
-    elif strategy.scheduling == Scheduling.INTERLEAVED:
-        return 'interleaved'
-    elif strategy.scheduling == Scheduling.REVERSE_BREADTH_FIRST:
-        return 'reverse-breadth-first'
-    elif strategy.scheduling == Scheduling.LIST_SCHEDULING:
-        return 'list'
-    else:
-        return 'unknown'
+    if strategy.scheduling == Scheduling.REVERSE_DEEP_FIRST:
+      return 'reverse-deep-first'
+    if strategy.scheduling == Scheduling.BREADTH_FIRST:
+      return 'breadth-first'
+    if strategy.scheduling == Scheduling.REVERSE_BREADTH_FIRST:
+      return 'reverse-breadth-first'
+    if strategy.scheduling == Scheduling.INTERLEAVED:
+      return 'interleaved'
+    if strategy.scheduling == Scheduling.ADAPTIVE:
+      return 'adaptive'
+    if strategy.scheduling == Scheduling.REVERSE_ADAPTIVE:
+        return 'reverse-adaptive'
+    return 'unknown'
 
 
 def faust_strategy_label_short(strategy: FaustStrategy) -> str:
     if strategy.scheduling == Scheduling.DEEP_FIRST:
         return 'DF'
-    elif strategy.scheduling == Scheduling.BREADTH_FIRST:
+    if strategy.scheduling == Scheduling.REVERSE_DEEP_FIRST:
+        return 'RDF'
+    if strategy.scheduling == Scheduling.BREADTH_FIRST:
         return 'BF'
-    elif strategy.scheduling == Scheduling.INTERLEAVED:
-        return 'I'
-    elif strategy.scheduling == Scheduling.REVERSE_BREADTH_FIRST:
+    if strategy.scheduling == Scheduling.REVERSE_BREADTH_FIRST:
         return 'RBF'
-    elif strategy.scheduling == Scheduling.LIST_SCHEDULING:
-        return 'L'
-    else:
-        return '??'
+    if strategy.scheduling == Scheduling.INTERLEAVED:
+        return 'I'
+    if strategy.scheduling == Scheduling.ADAPTIVE:
+        return 'A'
+    if strategy.scheduling == Scheduling.REVERSE_ADAPTIVE:
+        return 'RA'
+    return '??'
 
 
 def compilation_strategy_label(strategy: CompilationStrategy) -> str:
@@ -126,12 +133,12 @@ def line_color(event: PerfEvent) -> str:
         return 'black'
 
 
-def setup_matplotlib(output):
+def setup_matplotlib(output: Optional[str]):
     style = './report.mplstyle'
     if os.path.exists(style):
         plt.style.use(style)
     # When outputing to png format, we need a higher DPI.
-    if output:
+    if output is not None:
         plt.rcParams['figure.dpi'] = 512
 
 
@@ -163,7 +170,7 @@ def plot_stalls(run_result: FaustBenchmarkResult, ax: Axes):
     ax.set_xlim(xmin=1, xmax=len(x))
 
 
-def plot_uops(run_result, ax):
+def plot_uops(run_result: FaustBenchmarkResult, ax: Axes):
     x = np.arange(1, run_result.loops + 1)
     lw = 0.5
 
@@ -190,7 +197,7 @@ def plot_uops(run_result, ax):
     ax.set_xlim(xmin=1, xmax=len(x))
 
 
-def plot_events(run_result, ax):
+def plot_events(run_result: FaustBenchmarkResult, ax: Axes):
     x = np.arange(1, run_result.loops + 1)
     lw = 1
 
@@ -272,9 +279,13 @@ def plot_benchmark_loops(
     plt.close()
 
 
+def denoise(array: np.typing.NDArray) -> np.floating:
+    return np.quantile(array, 0.2)
+
+
 def get_denoised_value(event: PerfEvent, 
                        results: List[FaustBenchmarkResult]) -> np.typing.NDArray:
-    return np.asarray([np.quantile(r.events[event], 0.2) for r in results])
+    return np.asarray([denoise(r.events[event]) for r in results])
 
 
 def plot_broken_bar(ax, y, height, sections: list[tuple[np.typing.NDArray, str, str]], *,
@@ -291,7 +302,6 @@ def plot_broken_bar(ax, y, height, sections: list[tuple[np.typing.NDArray, str, 
 
 def plot_benchmark_summary(
         benchmark: FaustBenchmark, 
-        *,
         output_directory: Optional[str]
 ):
     setup_matplotlib(output_directory)
@@ -373,6 +383,48 @@ def plot_benchmark_summary(
         filename = f'{benchmark.program.name}_{benchmark.bench_type.value}_{benchmark.loops}' \
                    f'_summary.png'
         plt.savefig(os.path.join(output_directory, filename), bbox_inches="tight")
+    else:
+        plt.show()
+
+    plt.close()
+
+
+def plot_times( 
+        benchmarks: List[FaustBenchmark], 
+        output_file: Optional[str]):
+
+    relative_performance: Dict[FaustStrategy, List[np.floating]] = defaultdict(list)
+    for benchmark in benchmarks:
+        results = benchmark.run()
+        times = np.array([denoise(r.times) for r in results])
+        # times /= np.average(times)
+        for i, result in enumerate(results):
+            relative_performance[result.run.faust_strategy].append(times[i])
+
+    print('PLOT')
+
+    setup_matplotlib(output_file)
+
+    fig, ax = plt.subplots()
+    x = np.arange(len(benchmarks))
+    xticks = [b.program.name for b in benchmarks]
+    ax.set_xticks(x, xticks)
+
+    strategies = list(relative_performance.keys())
+    ncols = len(strategies)
+    width = 1 / (ncols + 1)
+
+    offset = 0
+    for strategy, times in relative_performance.items():
+        ax.plot(x, np.asarray(times),
+                label=faust_strategy_label(strategy))
+        offset += width
+        print(f'Strategy {faust_strategy_label(strategy)} average performance: {np.mean(np.asarray(times))}')
+
+    fig.legend()
+
+    if output_file:
+        plt.savefig(output_file, bbox_inches='tight')
     else:
         plt.show()
 

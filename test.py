@@ -4,7 +4,7 @@ from typing import List
 
 import numpy
 
-from build import FaustTest, FaustTestRun, FaustTestResult
+from build import FaustTest, FaustTestRun, FaustTestResult, FaustStrategy
 
 
 atol = 1e-8
@@ -24,22 +24,22 @@ def failure(msg, **kwargs):
 
 
 def compare_outputs(test_result: FaustTestResult):
-    codegens = test_result.test.faust_strategies
-    if len(codegens) < 2:
+    strategies = test_result.test.faust_strategies
+    if len(strategies) < 2:
         failure(f'need at least 2 strategies to compare between each other, '
-                f'but only {len(codegens)} were found.')
+                f'but only {len(strategies)} were found.')
         return
 
-    groups = []
-    for codegen in codegens:
-        output = test_result.outputs[codegen]
+    groups: List[List[FaustStrategy]] = []
+    for strategy in strategies:
+        output = test_result.outputs[strategy]
         try:
             group = next(g for g in groups
                          if numpy.allclose(test_result.outputs[g[0]], output,
-                                        atol=atol, rtol=rtol))
-            group.append(codegen)
+                                           atol=atol, rtol=rtol))
+            group.append(strategy)
         except StopIteration:
-            groups.append([codegen])
+            groups.append([strategy])
 
     if len(groups) == 1:
         if numpy.allclose(test_result.outputs[groups[0][0]], 0):
@@ -51,11 +51,11 @@ def compare_outputs(test_result: FaustTestResult):
 
     groups = sorted(groups, key=len, reverse=True)
     if len(groups) == 2 and len(groups[1]) == 1:
-        failure(f'strategy {groups[1][0].strategy} gave a different '
+        failure(f'strategy {groups[1][0].scheduling} gave a different '
                 f'impulse response')
     else:
         failure(f'obtained {len(groups)} different impulse responses '
-                f'from {len(codegens)} strategies')
+                f'from {len(strategies)} strategies')
 
     print('\033[2mNon-matching samples from each channel:')
 
@@ -64,8 +64,8 @@ def compare_outputs(test_result: FaustTestResult):
         other = test_result.outputs[g[0]]
         diff = numpy.isclose(ref, other, atol=atol, rtol=rtol)
         diff = numpy.logical_not(diff)
-        print(f'{ref[diff][:5]} [{' '.join([t.strategy for t in groups[0]])}]')
-        print(f'{other[diff][:5]} [{' '.join([t.strategy for t in g])}]')
+        print(f'{ref[diff][:5]} [{' '.join([t.scheduling for t in groups[0]])}]')
+        print(f'{other[diff][:5]} [{' '.join([t.scheduling for t in g])}]')
 
     print('\033[22m', end='')
 

@@ -101,6 +101,7 @@ int main(int argc, char* argv[])
             break;
         case JACK:
             runner = std::make_unique<jack_dsp_runner>();
+            break;
     }
 
     int nprograms = argc - optind;

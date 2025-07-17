@@ -1,5 +1,7 @@
 #include <iostream>
 
+#include <faust/audio/jack-dsp.h>
+
 #include "jack.h"
 
 jack_dsp_runner::jack_dsp_runner() = default;

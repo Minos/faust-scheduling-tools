@@ -1,3 +1,5 @@
 import("stdfaust.lib");
 
-process = si.bpar(8, @(1024)) :> si.bus(2);
+d = _ <: @(1000) * 0.3 + @(1001) * 0.2;
+
+process = si.bpar(16, d);

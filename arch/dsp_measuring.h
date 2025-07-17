@@ -37,7 +37,6 @@ class self_measuring_dsp : public decorator_dsp {
 
     void compute(int count, float** inputs, float** outputs) override;
 
-    void observe_event(const std::string& event_name);
     void observe_events(const std::vector<std::string>& event_names);
 
     // Run the DSP for a few hundred loops to ignore initialization effects
@@ -55,6 +54,7 @@ class self_measuring_dsp : public decorator_dsp {
     void print_measures_raw(std::ostream& output) const;
 
    private:
+    void observe_event(const std::string& event_name);
     void open_events();
 };
 

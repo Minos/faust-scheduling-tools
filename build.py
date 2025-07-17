@@ -25,10 +25,13 @@ TEST_BINARY = 'schedprint'
 
 class Scheduling(StrEnum):
     DEEP_FIRST = '0'
+    REVERSE_DEEP_FIRST = '4'
     BREADTH_FIRST = '1'
-    INTERLEAVED = '2'
     REVERSE_BREADTH_FIRST = '3'
-    LIST_SCHEDULING = '4'
+    INTERLEAVED = '2'
+
+    ADAPTIVE = '5'
+    REVERSE_ADAPTIVE = '6'
 
     @staticmethod
     def default() -> Scheduling:
@@ -175,7 +178,7 @@ class RunException(BaseException):
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class FaustTest:
     program: FaustProgram
     faust_strategies: List[FaustStrategy] = field(default_factory=FaustStrategy.all)
@@ -211,7 +214,7 @@ class FaustTestResult:
     outputs: Dict[FaustStrategy, NDArray]
 
 
-@dataclass
+@dataclass(frozen=True)
 class FaustBenchmark:
     program: FaustProgram
 
@@ -387,6 +390,7 @@ class FaustBenchmarkingPlan:
     bench_type: BenchType
 
     override: bool
+    tested_schedulings: List[Scheduling]
 
     def __init__(self,
                  programs: List[FaustProgram],
@@ -396,7 +400,8 @@ class FaustBenchmarkingPlan:
                  loops: int = 100,
                  events: List[PerfEvent] = [],
                  bench_type: BenchType = BenchType.default(),
-                 override: bool = False):
+                 override: bool = False,
+                 tested_schedulings: List[Scheduling] = []):
         self.programs = programs
         self.scheduling_strategies = scheduling_strategies
         self.compilers = compilers
@@ -405,6 +410,7 @@ class FaustBenchmarkingPlan:
         self.events = events
         self.bench_type = bench_type
         self.override = override
+        self.tested_schedulings = tested_schedulings
 
     def build(self) -> List[FaustBenchmark]:
         benchmarks: List[FaustBenchmark] = []
@@ -425,6 +431,10 @@ class FaustBenchmarkingPlan:
             benchmarks.append(benchmark)
 
             for faust_strategy in faust_strategies:
+                if len(self.tested_schedulings) > 0 and \
+                        faust_strategy.scheduling not in self.tested_schedulings:
+                    continue
+
                 faust_task = FaustTask(program, faust_strategy)
                 tasks.append(faust_task)
 
@@ -556,24 +566,12 @@ class Task:
             if d.failed:
                 raise TaskDependencyException(self, d)
 
-        recorded_error = f'{self.product}.failure'
-        if os.path.exists(recorded_error) and \
-                all(os.path.exists(s) and 
-                    os.path.getmtime(s) < os.path.getmtime(recorded_error)
-                    for s in self.sources + self.extra_dependencies()):
-            raise RecordedTaskException(self)
-
         """Run the task"""
         self.print_info()
         # print(f'\033[2m{" ".join(self.command())}\033[22m')
         process = subprocess.run(self.command(), capture_output=True, text=True)
         if process.returncode:
-            with open(recorded_error, 'w') as f:
-                f.write(process.stderr)
             raise TaskRunException(self, process)
-        elif os.path.exists(recorded_error):
-            # Remove previously recorded error in case of success
-            os.remove(recorded_error)
 
     def extra_dependencies(self) -> List[str]:
         return []

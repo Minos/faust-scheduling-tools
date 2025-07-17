@@ -1,5 +1,8 @@
 #include <iostream>
 
+#include <faust/misc.h>
+#include <faust/audio/alsa-dsp.h>
+
 #include "alsa.h"
 
 alsa_dsp_runner::alsa_dsp_runner(int sample_rate, int buffer_size)

@@ -1,14 +1,3 @@
-declare name 		"karplus4";
-declare version 	"1.0";
-declare author 		"Grame";
-declare license 	"BSD";
-declare copyright 	"(c)GRAME 2006";
-
-//-----------------------------------------------
-// 				karplus-strong
-//		with 4 resonators in parallel
-//-----------------------------------------------
-
 import("stdfaust.lib"); 
 
 // Excitator
@@ -35,13 +24,13 @@ resonator(d, a) = (+ : de.delay(4096, d-1.5)) ~ (average : *(1.0-a)) ;
 // Polyphony
 //-----------
 
-detune 		= hslider("detune", 4, 0, 512, 1);
-polyphony 	= hslider("polyphony", 1, 0, 4, 1);
+detune 		= hslider("detune", 32, 0, 512, 1);
+polyphony 	= hslider("polyphony", 1, 0, 32, 1);
 output 		= hslider("output volume", 0.5, 0, 1, 0.1);
 
-process =  vgroup("karplus4",
+karplus(n) =  vgroup("karplus",
 	 		   	vgroup("noise generator", no.noise * hslider("level", 0.5, 0, 1, 0.1))
 				 : vgroup("excitator", *(button("play"): trigger(size)))
-				<: vgroup("resonator x4", par(i,4, resonator(dur+i*detune, att) * (polyphony > i)))
+				<: vgroup("resonator", par(i, n, resonator(dur+i*detune, att) * (polyphony > i)))
 				:> *(output),*(output)
 			);

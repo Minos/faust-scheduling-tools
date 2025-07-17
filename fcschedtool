@@ -8,7 +8,7 @@ import os
 from build import (FaustProgram, FaustBenchmarkingPlan, FaustTestingPlan,
                    Compiler, Architecture, BenchType)
 from test import run_tests
-from plot import plot_benchmark_loops, plot_benchmark_summary, PlotType
+from plot import plot_benchmark_loops, plot_benchmark_summary, plot_times, PlotType
 from perf import PerfEvent
 
 
@@ -28,6 +28,7 @@ def main():
     subparsers = parser.add_subparsers(required=True)
     add_build_parser(subparsers)
     add_run_parser(subparsers)
+    add_times_parser(subparsers)
     add_plot_parser(subparsers)
     add_summary_parser(subparsers)
     add_test_parser(subparsers)
@@ -59,6 +60,17 @@ def add_run_parser(subparsers):
     parser.set_defaults(func=run_command)
 
 
+def add_times_parser(subparsers):
+    parser = subparsers.add_parser(
+        'times', help='plot average times of each strategy for each program'
+    )
+    add_path_argument(parser)
+    add_build_arguments(parser)
+    add_run_arguments(parser, False)
+    add_output_arguments(parser)
+    parser.set_defaults(func=times_command)
+
+
 def add_plot_parser(subparsers):
     parser = subparsers.add_parser(
         'plot',
@@ -67,7 +79,7 @@ def add_plot_parser(subparsers):
     add_path_argument(parser)
     add_build_arguments(parser)
     add_run_arguments(parser, False)
-    parser.add_argument('-o', '--output', help='Output plot to file', default=None)
+    add_output_arguments(parser)
     parser.set_defaults(func=plot_command)
 
 
@@ -79,7 +91,7 @@ def add_summary_parser(subparsers):
     add_path_argument(parser)
     add_build_arguments(parser)
     add_run_arguments(parser, True)
-    parser.add_argument('-o', '--output', help='Output plot to file', default=None)
+    add_output_arguments(parser)
     parser.set_defaults(func=summary_command)
 
 
@@ -116,6 +128,9 @@ def add_build_arguments(parser):
     parser.add_argument('--exhaustive',
                         help='Build with gcc and clang, with and without -march=native',
                         action='store_true')
+    parser.add_argument('-s',
+                        help='Only rebuild the given strategies (comma-separated)',
+                        default='')
 
 
 def add_run_arguments(parser, extended_event_list):
@@ -149,6 +164,10 @@ def add_run_arguments(parser, extended_event_list):
     )
 
 
+def add_output_arguments(parser):
+    parser.add_argument('-o', '--output', help='Output plot to file', default=None)
+
+
 def build_command(args):
     plan = create_benchmarking_plan(args, build_only=True)
     plan.build()
@@ -163,6 +182,12 @@ def test_command(args):
     plan = create_testing_plan(args)
     tests = plan.build()
     run_tests(tests)
+
+
+def times_command(args):
+    plan = create_benchmarking_plan(args)
+    benchmarks = plan.build()
+    plot_times(benchmarks, args.output)
 
 
 def plot_command(args):
@@ -232,6 +257,8 @@ def create_benchmarking_plan(args, *, build_only=False) -> FaustBenchmarkingPlan
         plan.architectures = [Architecture.NATIVE]
     elif args.generic:
         plan.architectures = [Architecture.X86_64]
+
+    plan.tested_schedulings = [s for s in args.s.split(',') if len(s) > 0]
 
     if build_only:
         return plan

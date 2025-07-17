@@ -1,5 +1,3 @@
-#include <faust/audio/alsa-dsp.h>
-
 #include "basic.h"
 
 #define CYCLE_SIZE 64
